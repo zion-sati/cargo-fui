@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,6 +26,7 @@ const metadata = JSON.parse(execFileSync('cargo', [
   '--manifest-path',
   join(scratch, 'Cargo.toml'),
 ], { encoding: 'utf8' }));
+rmSync(scratch, { recursive: true, force: true });
 const fui = metadata.packages.find((item) => item.name === 'fui-rs' && item.version === fuiRsVersion);
 const runtimeVersion = fui?.metadata?.effindom?.['runtime-version'];
 if (!versionPattern.test(runtimeVersion ?? '')) {
@@ -39,6 +40,7 @@ const runtimeResponse = await fetch(runtimeManifestUrl, {
 if (!runtimeResponse.ok) {
   throw new Error(`The EffinDOM ${runtimeVersion} native runtime manifest is unavailable: ${runtimeManifestUrl} (${runtimeResponse.status})`);
 }
+await runtimeResponse.body?.cancel();
 
 let scaffold = readFileSync(scaffoldPath, 'utf8');
 scaffold = scaffold.replace(/const FUI_RS_VERSION: &str = "[^"]+";/, `const FUI_RS_VERSION: &str = "=${fuiRsVersion}";`);
