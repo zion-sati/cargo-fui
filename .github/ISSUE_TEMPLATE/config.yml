@@ -1,0 +1,6 @@
+blank_issues_enabled: false
+contact_links:
+  - name: FUI-RS SDK questions and design discussions
+    url: https://github.com/zion-sati/fui-rs/discussions
+    about: Ask about retained UI APIs, controls, and application design in FUI-RS.
+

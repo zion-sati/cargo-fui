@@ -1,0 +1,24 @@
+name: Feature request
+description: Describe an application problem that cargo-fui does not currently solve.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Application problem
+      description: Describe the blocked workflow before proposing an API or command.
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current workaround
+  - type: textarea
+    id: targets
+    attributes:
+      label: Affected targets and expected cross-platform behaviour
+    validations:
+      required: true
+

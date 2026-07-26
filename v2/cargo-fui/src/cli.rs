@@ -42,14 +42,19 @@ pub fn run_cli(
         return Err(usage());
     };
     match command {
-        "new" => new_command(&cwd, &arguments[1..], io),
-        "build" => build_command(&cwd, &arguments[1..], io),
-        "dev" => dev_command(&cwd, &arguments[1..], io),
-        "package" => package_command(&cwd, &arguments[1..], io),
-        "help" | "--help" | "-h" => {
-            io.print(USAGE);
-            Ok(())
-        }
+        "new" => command_or_help(&arguments[1..], NEW_USAGE, io, || {
+            new_command(&cwd, &arguments[1..], io)
+        }),
+        "build" => command_or_help(&arguments[1..], BUILD_USAGE, io, || {
+            build_command(&cwd, &arguments[1..], io)
+        }),
+        "dev" => command_or_help(&arguments[1..], DEV_USAGE, io, || {
+            dev_command(&cwd, &arguments[1..], io)
+        }),
+        "package" => command_or_help(&arguments[1..], PACKAGE_USAGE, io, || {
+            package_command(&cwd, &arguments[1..], io)
+        }),
+        "help" | "--help" | "-h" => print_help(arguments.get(1).map(String::as_str), io),
         "--version" | "-V" => {
             io.print(concat!("cargo-fui ", env!("CARGO_PKG_VERSION")));
             Ok(())
@@ -60,10 +65,53 @@ pub fn run_cli(
     }
 }
 
-const USAGE: &str = "Usage:\n  cargo fui new <path> --target native|web|universal\n  cargo fui dev [--release] [--offline]\n  cargo fui build [--release] [--offline]\n  cargo fui package [--debug] [--offline]";
+const USAGE: &str = "FUI-RS project, development, build, and packaging tooling.\n\nUsage:\n  cargo fui new <path> [--target native|web|universal]\n  cargo fui dev [--release] [--offline]\n  cargo fui build [--release] [--offline]\n  cargo fui package [--debug] [--offline]\n\nRun `cargo fui help <command>` for command-specific help.";
+
+const NEW_USAGE: &str = "Create a FUI-RS application.\n\nUsage:\n  cargo fui new <path> [--target native|web|universal]\n\nTargets:\n  native      Native macOS, Windows, or Linux application; no Node.js required.\n  web         Browser/WebAssembly application; requires Node.js.\n  universal   Shared retained UI with explicit native and web adapters.\n\nThe default target is native.";
+
+const DEV_USAGE: &str = "Build and run or serve the current FUI-RS project.\n\nUsage:\n  cargo fui dev [--release] [--offline]\n\nOptions:\n  --release   Use optimized release output instead of the default debug build.\n  --offline   Require cached dependencies and EffinDOM runtime inputs.";
+
+const BUILD_USAGE: &str = "Build the current FUI-RS project.\n\nUsage:\n  cargo fui build [--release] [--offline]\n\nOptions:\n  --release   Create optimized output instead of the default debug build.\n  --offline   Require cached dependencies and EffinDOM runtime inputs.";
+
+const PACKAGE_USAGE: &str = "Package the current native FUI-RS application.\n\nUsage:\n  cargo fui package [--debug] [--offline]\n\nOutput:\n  macOS       DMG\n  Windows     MSIX\n  Linux       AppImage\n\nOptions:\n  --debug     Package development output instead of the default release build.\n  --offline   Require cached dependencies and EffinDOM runtime inputs.";
 
 fn usage() -> Error {
     Error::Cli(USAGE.to_string())
+}
+
+fn command_or_help(
+    arguments: &[String],
+    help: &str,
+    io: &CliIo<'_>,
+    command: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    if arguments.iter().any(|argument| is_help(argument)) {
+        io.print(help);
+        Ok(())
+    } else {
+        command()
+    }
+}
+
+fn is_help(argument: &str) -> bool {
+    matches!(argument, "help" | "--help" | "-h")
+}
+
+fn print_help(command: Option<&str>, io: &CliIo<'_>) -> Result<()> {
+    let help = match command {
+        None => USAGE,
+        Some("new") => NEW_USAGE,
+        Some("dev") => DEV_USAGE,
+        Some("build") => BUILD_USAGE,
+        Some("package") => PACKAGE_USAGE,
+        Some(command) => {
+            return Err(Error::Cli(format!(
+                "unknown command {command:?}\n\n{USAGE}"
+            )))
+        }
+    };
+    io.print(help);
+    Ok(())
 }
 
 fn new_command(cwd: &Path, arguments: &[String], io: &CliIo<'_>) -> Result<()> {

@@ -115,6 +115,39 @@ fn templates_keep_native_node_free_and_universal_boundaries_explicit() {
 }
 
 #[test]
+fn templates_generate_target_specific_first_run_guidance() {
+    let temp = TempDir::new();
+
+    let native = temp.0.join("native-readme");
+    create(&native, ProjectTemplate::Native);
+    let native_readme = fs::read_to_string(native.join("README.md")).unwrap();
+    assert!(native_readme.contains("without Electron or a WebView"));
+    assert!(native_readme.contains("cargo fui package"));
+    assert!(native_readme.contains("src/services/native.rs"));
+    assert!(!native_readme.contains("Node.js LTS"));
+
+    let web = temp.0.join("web-readme");
+    create(&web, ProjectTemplate::Web);
+    let web_readme = fs::read_to_string(web.join("README.md")).unwrap();
+    assert!(web_readme.contains("Node.js LTS"));
+    assert!(web_readme.contains("intentionally unavailable for web-only projects"));
+    assert!(web_readme.contains("src/services/web.rs"));
+
+    let universal = temp.0.join("universal-readme");
+    create(&universal, ProjectTemplate::Universal);
+    let universal_readme = fs::read_to_string(universal.join("README.md")).unwrap();
+    assert!(universal_readme.contains("shared retained UI"));
+    assert!(universal_readme.contains("crates/ui"));
+    assert!(universal_readme.contains("Produce optimized native and browser builds"));
+
+    for readme in [native_readme, web_readme, universal_readme] {
+        assert!(readme.contains("https://rustup.rs/"));
+        assert!(readme.contains("cargo install --locked cargo-fui"));
+        assert!(readme.contains("https://fui-rs-demo.effindom.dev/"));
+    }
+}
+
+#[test]
 fn scaffolding_rejects_nonempty_destinations_without_overwriting() {
     let temp = TempDir::new();
     let destination = temp.0.join("occupied");

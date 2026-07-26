@@ -309,13 +309,28 @@ fn web_package(package: &str) -> String {
 }
 
 fn readme(name: &str, template: ProjectTemplate) -> String {
-    let target = match template {
-        ProjectTemplate::Native => "native",
-        ProjectTemplate::Web => "web",
-        ProjectTemplate::Universal => "universal",
+    let (summary, requirements, commands, structure) = match template {
+        ProjectTemplate::Native => (
+            "A native FUI-RS desktop application. It renders through EffinDOM without Electron or a WebView.",
+            "- The stable Rust toolchain from [rustup](https://rustup.rs/)\n- `cargo-fui`, installed with `cargo install --locked cargo-fui`\n- The platform prerequisites documented by [`cargo-fui`](https://github.com/zion-sati/cargo-fui#platform-prerequisites)",
+            "```bash\n# Build and run the native app in the default debug profile.\ncargo fui dev\n\n# Produce an optimized native build.\ncargo fui build --release\n\n# Produce the platform package or release archive.\ncargo fui package\n```",
+            "- `src/lib.rs` owns the retained UI and application lifecycle.\n- `src/services/native.rs` is the boundary for native platform services.\n- `fui.toml` defines application metadata, assets, targets, and packaging settings.\n- `assets/application-icon.png` is the canonical application icon.",
+        ),
+        ProjectTemplate::Web => (
+            "A browser FUI-RS application compiled to WebAssembly.",
+            "- The stable Rust toolchain from [rustup](https://rustup.rs/)\n- `cargo-fui`, installed with `cargo install --locked cargo-fui`\n- A current Node.js LTS release and npm",
+            "```bash\n# Build the app and serve it locally with rebuild-on-refresh development behavior.\ncargo fui dev\n\n# Produce an optimized browser build in public/.\ncargo fui build --release\n```\n\n`cargo fui package` is intentionally unavailable for web-only projects. Deploy the generated `public/` directory with your normal static-site tooling.",
+            "- `src/lib.rs` owns the retained UI and application lifecycle.\n- `src/services/web.rs` is the boundary for browser services.\n- `harness.ts` starts the EffinDOM browser harness.\n- `fui.toml` defines application metadata, assets, and targets.\n- `assets/application-icon.png` is the canonical application icon.",
+        ),
+        ProjectTemplate::Universal => (
+            "A universal FUI-RS application with shared retained UI and explicit native and browser adapters. Native rendering does not use Electron or a WebView.",
+            "- The stable Rust toolchain from [rustup](https://rustup.rs/)\n- `cargo-fui`, installed with `cargo install --locked cargo-fui`\n- The platform prerequisites documented by [`cargo-fui`](https://github.com/zion-sati/cargo-fui#platform-prerequisites)\n- A current Node.js LTS release and npm for the WebAssembly target",
+            "```bash\n# Build and serve the browser adapter during development.\ncargo fui dev\n\n# Produce optimized native and browser builds.\ncargo fui build --release\n\n# Produce the native platform package or release archive.\ncargo fui package\n```",
+            "- `crates/ui` owns the shared retained UI and service contracts.\n- `crates/native` is the thin native application adapter.\n- `crates/web` is the thin WebAssembly application adapter.\n- `crates/ui/src/services/native.rs` and `web.rs` keep platform services explicit.\n- `fui.toml` defines shared application metadata, assets, targets, and packaging settings.\n- `assets/application-icon.png` is the canonical application icon.",
+        ),
     };
     format!(
-        "# {name}\n\nA {target} FUI-RS application.\n\n```bash\ncargo fui dev\ncargo fui build --release\ncargo fui package\n```\n"
+        "# {name}\n\n{summary}\n\n## Requirements\n\n{requirements}\n\nVerify the tools before continuing:\n\n```bash\nrustc --version\ncargo --version\ncargo fui --help\n```\n\n## Run, build, and package\n\n{commands}\n\n## Project structure\n\n{structure}\n\n## Learn more\n\n- [FUI-RS](https://github.com/zion-sati/fui-rs)\n- [`cargo-fui`](https://github.com/zion-sati/cargo-fui)\n- [Live FUI-RS demo](https://fui-rs-demo.effindom.dev/)\n\nReport framework or tooling problems in the relevant FUI-RS or `cargo-fui` repository.\n"
     )
 }
 

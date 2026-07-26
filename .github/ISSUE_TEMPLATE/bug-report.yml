@@ -1,0 +1,54 @@
+name: Bug report
+description: Report a reproducible cargo-fui scaffold, build, development, or packaging failure.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Please reduce the failure to the smallest generated project that reproduces it.
+  - type: input
+    id: version
+    attributes:
+      label: cargo-fui version
+      placeholder: cargo fui --version
+    validations:
+      required: true
+  - type: dropdown
+    id: target
+    attributes:
+      label: Project target
+      options:
+        - native
+        - web
+        - universal
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and architecture
+      placeholder: macOS 15 arm64, Windows 11 x64, Ubuntu 24.04 x64
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Include commands from an empty directory where possible.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Complete relevant output
+      render: shell
+    validations:
+      required: true
+
