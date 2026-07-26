@@ -95,10 +95,10 @@ jobs:
           RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
         run: |
           for attempt in $(seq 1 30); do
-            if curl -fsS "https://crates.io/api/v1/crates/effindom-native-packaging/$RELEASE_VERSION" >/dev/null; then exit 0; fi
+            if cargo info "effindom-native-packaging@$RELEASE_VERSION" >/dev/null 2>&1; then exit 0; fi
             sleep 10
           done
-          echo "effindom-native-packaging@$RELEASE_VERSION did not reach the crates.io API" >&2
+          echo "effindom-native-packaging@$RELEASE_VERSION did not reach the Cargo index" >&2
           exit 1
       - name: Authenticate cargo-fui crate
         id: crates_io_cli
