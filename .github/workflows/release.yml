@@ -68,18 +68,10 @@ jobs:
           node-version: 24
           package-manager-cache: false
       - uses: dtolnay/rust-toolchain@stable
-      - name: Download verified release inputs
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CI_RUN_ID: ${{ needs.verify_ci.outputs.ci_run_id }}
-        run: |
-          mkdir -p .release-inputs
-          gh run download "$CI_RUN_ID" --name cargo-fui-release-inputs --dir .release-inputs
-          test -f .release-inputs/attestation.json
-      - name: Stamp release and tested dependency versions
+      - name: Stamp release version
         env:
           RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
-        run: node scripts/ci/stamp-release-inputs.mjs --inputs .release-inputs/attestation.json --release-version "$RELEASE_VERSION"
+        run: node scripts/ci/stamp-release-version.mjs --release-version "$RELEASE_VERSION"
       - name: Verify publishable packaging library
         run: cargo package --manifest-path v2/native/packaging/Cargo.toml --allow-dirty
       - name: Authenticate packaging crate
