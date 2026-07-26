@@ -1,0 +1,3 @@
+[workspace]
+members = ["v2/native/packaging", "v2/cargo-fui"]
+resolver = "2"
