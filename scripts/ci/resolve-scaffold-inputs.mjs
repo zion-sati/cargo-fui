@@ -28,6 +28,7 @@ const runtimeResponse = await fetch(runtimeManifestUrl, {
 if (!runtimeResponse.ok) {
   throw new Error(`fui-rs@${fuiRsVersion} declares EffinDOM ${runtimeVersion}, but its native runtime manifest is unavailable: ${runtimeManifestUrl} (${runtimeResponse.status})`);
 }
+await runtimeResponse.arrayBuffer();
 
 writeFileSync(process.env.GITHUB_OUTPUT, `fui_rs_version=${fuiRsVersion}\nruntime_version=${runtimeVersion}\n`, { flag: 'a' });
 console.log(`Resolved fui-rs@${fuiRsVersion} with EffinDOM runtime ${runtimeVersion}.`);
