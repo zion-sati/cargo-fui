@@ -92,7 +92,17 @@ jobs:
         run: node scripts/ci/stamp-release-inputs.mjs
       - name: Install Linux packaging tools
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libfuse2 squashfs-tools xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libdbus-1-dev \
+            libfontconfig1-dev \
+            libfuse2 \
+            libvulkan-dev \
+            libx11-dev \
+            libxext-dev \
+            squashfs-tools \
+            xvfb
       - name: Install AppImageTool
         if: runner.os == 'Linux'
         run: |

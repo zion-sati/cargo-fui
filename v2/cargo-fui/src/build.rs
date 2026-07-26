@@ -501,13 +501,23 @@ fn application_package<'a>(
     metadata
         .packages
         .iter()
-        .find(|package| package.manifest_path == manifest)
+        .find(|package| paths_identify_same_file(&package.manifest_path, &manifest))
         .ok_or_else(|| {
             Error::Cli(format!(
                 "Cargo metadata does not contain {}",
                 manifest.display()
             ))
         })
+}
+
+fn paths_identify_same_file(left: &Path, right: &Path) -> bool {
+    let Ok(left) = fs::canonicalize(left) else {
+        return false;
+    };
+    let Ok(right) = fs::canonicalize(right) else {
+        return false;
+    };
+    left == right
 }
 
 fn copy_application_assets(contract: &PackageContract, destination: &Path) -> Result<()> {
@@ -808,5 +818,41 @@ fn io_error(operation: &'static str, path: &Path, source: std::io::Error) -> Err
         operation,
         path: path.to_path_buf(),
         source,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::paths_identify_same_file;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+
+    #[test]
+    fn manifest_identity_accepts_equivalent_platform_path_representations() {
+        let root = std::env::temp_dir().join(format!(
+            "cargo-fui-manifest-identity-{}-{}",
+            std::process::id(),
+            NEXT_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let manifest = root.join("Cargo.toml");
+        fs::write(
+            &manifest,
+            "[package]\nname = \"path-test\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        let equivalent = root.join("nested").join("..").join("Cargo.toml");
+        fs::create_dir_all(root.join("nested")).unwrap();
+
+        assert!(paths_identify_same_file(&manifest, &equivalent));
+        assert!(!paths_identify_same_file(
+            &manifest,
+            &PathBuf::from("missing-Cargo.toml")
+        ));
+
+        fs::remove_dir_all(root).unwrap();
     }
 }
