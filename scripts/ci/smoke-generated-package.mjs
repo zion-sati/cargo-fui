@@ -91,7 +91,7 @@ async function smokeWindows(screenshot) {
   const unpacked = path.join(temporaryRoot, 'unpacked-msix');
   run('makeappx.exe', ['unpack', '/p', msix, '/d', unpacked, '/o']);
   const executable = await oneExecutable(unpacked);
-  run(executable, ['--hidden', '--screenshot', screenshot], { cwd: os.tmpdir() });
+  run(executable, ['--hidden', '--screenshot', screenshot], { cwd: path.dirname(executable) });
 }
 
 async function smokeLinux(screenshot) {
@@ -137,5 +137,10 @@ try {
   const result = await assertScreenshot(screenshot);
   console.log(`Packaged application rendered ${result.width}x${result.height} (${result.bytes} bytes).`);
 } finally {
-  await rm(temporaryRoot, { recursive: true, force: true });
+  await rm(temporaryRoot, {
+    recursive: true,
+    force: true,
+    maxRetries: process.platform === 'win32' ? 10 : 0,
+    retryDelay: 200,
+  });
 }

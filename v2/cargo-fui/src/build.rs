@@ -447,12 +447,16 @@ fn link_native(
             .arg("/nologo")
             .arg("/std:c++17")
             .arg("/EHsc")
+            .arg("/MD")
             .arg(&launcher)
             .arg(format!("/I{}", include.display()));
         for library in &libraries {
             command.arg(library);
         }
         for library in &link.system_libraries {
+            command.arg(format!("{library}.lib"));
+        }
+        for library in supplemental_system_libraries(operating_system, &link.system_libraries) {
             command.arg(format!("{library}.lib"));
         }
         command
@@ -468,8 +472,14 @@ fn link_native(
             .arg(&include)
             .arg("-o")
             .arg(executable);
+        if operating_system == OperatingSystem::Linux {
+            command.arg("-Wl,--start-group");
+        }
         for library in &libraries {
             command.arg(library);
+        }
+        if operating_system == OperatingSystem::Linux {
+            command.arg("-Wl,--end-group");
         }
         for library in &link.system_libraries {
             if let Some(framework) = library.strip_suffix(".framework") {
@@ -490,6 +500,25 @@ fn link_native(
     run_status(&mut command, "native C++ linker")?;
     let _ = &link.runtime_library_directory;
     Ok(())
+}
+
+fn supplemental_system_libraries(
+    operating_system: OperatingSystem,
+    declared: &[String],
+) -> Vec<&'static str> {
+    const WINDOWS_BASELINE: &[&str] = &["user32", "oleaut32"];
+    if operating_system != OperatingSystem::Windows {
+        return Vec::new();
+    }
+    WINDOWS_BASELINE
+        .iter()
+        .copied()
+        .filter(|required| {
+            !declared
+                .iter()
+                .any(|library| library.eq_ignore_ascii_case(required))
+        })
+        .collect()
 }
 
 fn application_package<'a>(
@@ -823,7 +852,7 @@ fn io_error(operation: &'static str, path: &Path, source: std::io::Error) -> Err
 
 #[cfg(test)]
 mod tests {
-    use super::paths_identify_same_file;
+    use super::{paths_identify_same_file, supplemental_system_libraries, OperatingSystem};
     use std::fs;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -854,5 +883,16 @@ mod tests {
         ));
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn windows_linking_supplies_missing_platform_baseline_libraries() {
+        let declared = vec!["shell32".to_string(), "USER32".to_string()];
+
+        assert_eq!(
+            supplemental_system_libraries(OperatingSystem::Windows, &declared),
+            vec!["oleaut32"]
+        );
+        assert!(supplemental_system_libraries(OperatingSystem::Linux, &declared).is_empty());
     }
 }

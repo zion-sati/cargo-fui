@@ -79,10 +79,13 @@ pub fn stage_native_bundle(
         metadata: contract.package_metadata(),
         application_executable: BundleFile::new(&output.application_executable, executable),
         effindom_runtime_libraries: map_libraries(
-            &output.effindom_runtime_libraries,
+            &libraries_with_platform_aliases(contract, &output.effindom_runtime_libraries),
             &runtime_libraries,
         )?,
-        third_party_libraries: map_libraries(&output.third_party_libraries, &runtime_libraries)?,
+        third_party_libraries: map_libraries(
+            &libraries_with_platform_aliases(contract, &output.third_party_libraries),
+            &runtime_libraries,
+        )?,
         runtime_resources: map_tree(&output.runtime_resources, &runtime_resources)?,
         application_resources: map_tree(&output.application_resources, &application_resources)?,
         metadata_artifacts: generated.write(contract)?,
@@ -93,6 +96,37 @@ pub fn stage_native_bundle(
         package_record,
         record,
     })
+}
+
+fn libraries_with_platform_aliases(
+    contract: &PackageContract,
+    libraries: &[NativeLibraryOutput],
+) -> Vec<NativeLibraryOutput> {
+    let mut output = libraries.to_vec();
+    if contract.target.operating_system != OperatingSystem::Linux {
+        return output;
+    }
+    for library in libraries {
+        if library
+            .relative_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            == Some("libSDL3.so")
+            && !libraries.iter().any(|candidate| {
+                candidate
+                    .relative_path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    == Some("libSDL3.so.0")
+            })
+        {
+            output.push(NativeLibraryOutput::new(
+                &library.source,
+                library.relative_path.with_file_name("libSDL3.so.0"),
+            ));
+        }
+    }
+    output
 }
 
 fn relative_to_layout(root: &Path, path: &Path) -> Result<PathBuf> {

@@ -50,7 +50,7 @@ fn stages_explicit_build_outputs_through_the_resolved_platform_layout() {
     fs::create_dir_all(&app_resources).unwrap();
     write(&build.join("sample"), "executable");
     write(&build.join("effindom.so"), "runtime");
-    write(&build.join("SDL.so"), "third-party");
+    write(&build.join("libSDL3.so"), "third-party");
     write(&runtime_resources.join("fonts/body.ttf"), "font");
     write(&app_resources.join("texture.png"), "texture");
     let contract = resolve_package_contract(
@@ -67,14 +67,11 @@ fn stages_explicit_build_outputs_through_the_resolved_platform_layout() {
         &contract,
         &NativeBuildOutput {
             application_executable: build.join("sample"),
-            effindom_runtime_libraries: vec![NativeLibraryOutput::from_file(
-                build.join("effindom.so"),
-            )
-            .unwrap()],
-            third_party_libraries: vec![NativeLibraryOutput::new(
-                build.join("SDL.so"),
-                "plugins/SDL.so",
-            )],
+            effindom_runtime_libraries: vec![
+                NativeLibraryOutput::from_file(build.join("effindom.so")).unwrap(),
+                NativeLibraryOutput::new(build.join("libSDL3.so"), "plugins/libSDL3.so"),
+            ],
+            third_party_libraries: Vec::new(),
             runtime_resources,
             application_resources: app_resources,
         },
@@ -84,7 +81,8 @@ fn stages_explicit_build_outputs_through_the_resolved_platform_layout() {
     .unwrap();
     assert!(staged.root.join("bin/sample-app").is_file());
     assert!(staged.root.join("lib/effindom.so").is_file());
-    assert!(staged.root.join("lib/plugins/SDL.so").is_file());
+    assert!(staged.root.join("lib/plugins/libSDL3.so").is_file());
+    assert!(staged.root.join("lib/plugins/libSDL3.so.0").is_file());
     assert!(staged.root.join("share/effindom/fonts/body.ttf").is_file());
     assert!(staged.root.join("share/app/texture.png").is_file());
     assert!(staged.root.join("share/effindom-package.json").is_file());

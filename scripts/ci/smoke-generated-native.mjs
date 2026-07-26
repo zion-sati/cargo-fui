@@ -81,9 +81,22 @@ const command = process.platform === 'linux' ? 'xvfb-run' : executable;
 const args = process.platform === 'linux' ? ['--auto-servernum', executable] : [];
 const child = spawn(command, args, {
   cwd: path.dirname(executable),
+  detached: process.platform !== 'win32',
   env: process.env,
   stdio: ['ignore', 'pipe', 'pipe'],
 });
+
+function terminateChildTree(signal = 'SIGTERM') {
+  if (process.platform !== 'win32' && child.pid !== undefined) {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch {
+      // The process group may already have exited between the poll and cleanup.
+    }
+  }
+  child.kill(signal);
+}
 
 let stdout = '';
 let stderr = '';
@@ -109,13 +122,13 @@ if (startup.kind === 'exit') {
   );
 }
 
-child.kill();
+terminateChildTree();
 const shutdown = await Promise.race([
   exit.then((result) => ({ kind: 'exit', result })),
   new Promise((resolve) => setTimeout(() => resolve({ kind: 'timeout' }), shutdownWindowMs)),
 ]);
 if (shutdown.kind === 'timeout') {
-  child.kill('SIGKILL');
+  terminateChildTree('SIGKILL');
   await exit;
 }
 
