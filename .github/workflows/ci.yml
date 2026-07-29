@@ -19,7 +19,7 @@ permissions:
   contents: read
 
 jobs:
-  rust:
+  source-package:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -33,12 +33,20 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
-      - run: node --test scripts/ci/publish-crate-idempotently.test.mjs
+      - run: node --test scripts/ci/*.test.mjs
       - run: cargo package --manifest-path v2/native/packaging/Cargo.toml --allow-dirty
-      - name: Verify cargo-fui package contents
-        run: cargo package --manifest-path v2/cargo-fui/Cargo.toml --allow-dirty --list >/dev/null
+      - name: Build canonical cargo-fui source package
+        run: cargo package --locked --manifest-path v2/cargo-fui/Cargo.toml --allow-dirty
+      - name: Upload canonical cargo-fui source package
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-fui-source-package
+          path: target/package/cargo-fui-*.crate
+          if-no-files-found: error
+          retention-days: 14
 
   native-acceptance:
+    needs: source-package
     name: native-acceptance / ${{ matrix.name }}
     strategy:
       fail-fast: false
@@ -133,8 +141,13 @@ jobs:
           echo "CARGO_HOME=$RUNNER_TEMP/cargo-home" >> "$GITHUB_ENV"
           echo "CARGO_INSTALL_ROOT=$RUNNER_TEMP/cargo-fui-install" >> "$GITHUB_ENV"
           echo "$RUNNER_TEMP/cargo-fui-install/bin" >> "$GITHUB_PATH"
-      - name: Install cargo-fui from source package
-        run: cargo install --locked --path v2/cargo-fui
+      - name: Download canonical cargo-fui source package
+        uses: actions/download-artifact@v4
+        with:
+          name: cargo-fui-source-package
+          path: ${{ runner.temp }}/cargo-fui-source-package
+      - name: Install canonical cargo-fui source package
+        run: node scripts/ci/install-packaged-cargo-fui.mjs --package-dir "${{ runner.temp }}/cargo-fui-source-package" --install-root "${{ runner.temp }}/cargo-fui-install"
       - name: Scaffold native smoke app
         run: cargo fui new native-smoke --target native
       - name: Build, launch, and package native smoke app
@@ -146,6 +159,7 @@ jobs:
           node ../scripts/ci/smoke-generated-package.mjs .
 
   web-acceptance:
+    needs: source-package
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -156,11 +170,20 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+      - name: Download canonical cargo-fui source package
+        uses: actions/download-artifact@v4
+        with:
+          name: cargo-fui-source-package
+          path: ${{ runner.temp }}/cargo-fui-source-package
+      - name: Install canonical cargo-fui source package
+        run: node scripts/ci/install-packaged-cargo-fui.mjs --package-dir "${{ runner.temp }}/cargo-fui-source-package" --install-root "$RUNNER_TEMP/cargo-fui-install"
       - name: Scaffold and build browser smoke app
         run: |
-          cargo run --manifest-path v2/cargo-fui/Cargo.toml -- fui new web-smoke --target web
+          echo "$RUNNER_TEMP/cargo-fui-install/bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/cargo-fui-install/bin:$PATH"
+          cargo fui new web-smoke --target web
           cd web-smoke
-          cargo run --manifest-path ../v2/cargo-fui/Cargo.toml -- fui build --release
+          cargo fui build --release
       - name: Install browser smoke dependency
         working-directory: web-smoke
         run: |
@@ -168,3 +191,51 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Launch generated browser app
         run: node scripts/ci/smoke-generated-web.mjs web-smoke/public web-smoke/node_modules
+
+  universal-acceptance:
+    needs: source-package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install universal acceptance dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libdbus-1-dev \
+            libfontconfig1-dev \
+            libvulkan-dev \
+            libx11-dev \
+            libxext-dev \
+            mesa-vulkan-drivers \
+            xvfb
+          vulkan_icd="$(find /usr/share/vulkan/icd.d -maxdepth 1 -type f -name 'lvp_icd*.json' -print -quit)"
+          test -n "$vulkan_icd"
+          echo "VK_DRIVER_FILES=$vulkan_icd" >> "$GITHUB_ENV"
+      - name: Download canonical cargo-fui source package
+        uses: actions/download-artifact@v4
+        with:
+          name: cargo-fui-source-package
+          path: ${{ runner.temp }}/cargo-fui-source-package
+      - name: Install canonical cargo-fui source package
+        run: node scripts/ci/install-packaged-cargo-fui.mjs --package-dir "${{ runner.temp }}/cargo-fui-source-package" --install-root "$RUNNER_TEMP/cargo-fui-install"
+      - name: Scaffold and build universal smoke app
+        run: |
+          export PATH="$RUNNER_TEMP/cargo-fui-install/bin:$PATH"
+          cargo fui new universal-smoke --target universal
+          cd universal-smoke
+          cargo fui build --release
+          node ../scripts/ci/smoke-generated-native.mjs .
+      - name: Install browser smoke dependency
+        working-directory: universal-smoke
+        run: |
+          npm install --no-save @playwright/test@1.59.1
+          npx playwright install --with-deps chromium
+      - name: Launch generated browser app
+        run: node scripts/ci/smoke-generated-web.mjs universal-smoke/public universal-smoke/node_modules
