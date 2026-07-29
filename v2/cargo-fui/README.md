@@ -10,6 +10,23 @@ runtime, builds the selected targets, and emits deployable output.
 
 Native applications do not contain a browser, Electron, or a WebView.
 
+## Platform prerequisites
+
+Install the native compiler and linker for your operating system before
+installing `cargo-fui`; Cargo uses them while compiling Rust tools and
+applications.
+
+- macOS requires the Xcode Command Line Tools (`xcode-select --install`).
+- Windows requires Visual Studio 2022 Build Tools with the **Desktop development
+  with C++** workload and a Windows SDK. Windows ARM64 also requires the ARM64
+  C++ build tools.
+- Linux requires a C/C++ compiler toolchain plus the Vulkan, Fontconfig, D-Bus,
+  X11, and Xext development libraries used by the EffinDOM native host.
+
+Web and universal projects additionally require Node.js 24 and the
+`wasm32-unknown-unknown` Rust target. Native-only projects do not require
+Node.js.
+
 ## Quick start
 
 Install stable Rust with [rustup](https://rustup.rs/) first. Rustup includes
@@ -97,12 +114,9 @@ All targets require stable Rust and Cargo. The supported installation path is
 [rustup](https://rustup.rs/); operating-system Rust packages may be too old for
 the current FUI-RS toolchain.
 
-- macOS native builds require Xcode command-line tools.
-- Windows native builds require Visual Studio Build Tools and the Windows SDK.
-- Linux native builds require a C++ compiler and the platform libraries used by
-  the EffinDOM host. AppImage packaging additionally requires AppImage and
-  SquashFS tooling.
-- Web builds require `wasm32-unknown-unknown` and Node.js 24.
+See [Platform prerequisites](#platform-prerequisites) before installing
+`cargo-fui`. AppImage packaging additionally requires AppImage and SquashFS
+tooling.
 
 The generated README contains target-specific setup and run instructions.
 

@@ -3,12 +3,12 @@ import { access, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 
+import { nativeExecutableCandidateScore } from './native-executable-candidate.mjs';
+
 const projectRoot = path.resolve(process.argv[2] ?? 'native-smoke');
 const stagedRoot = path.join(projectRoot, 'target', 'fui');
 const startupWindowMs = 2_000;
 const shutdownWindowMs = 5_000;
-
-const normalize = (value) => value.split(path.sep).join('/');
 
 async function collectFiles(directory, output = []) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -34,33 +34,10 @@ async function isExecutable(file) {
   }
 }
 
-function candidateScore(file) {
-  const normalized = normalize(file);
-  if (!normalized.includes('/release/bundle/')) {
-    return -1;
-  }
-  if (process.platform === 'darwin') {
-    return normalized.includes('.app/Contents/MacOS/') ? 100 : -1;
-  }
-  if (process.platform === 'win32') {
-    return normalized.endsWith('.exe') ? 100 : -1;
-  }
-  if (/\.(?:so|a|dylib)$/u.test(normalized)) {
-    return -1;
-  }
-  if (normalized.includes('.AppDir/usr/bin/')) {
-    return 100;
-  }
-  if (normalized.includes('/bundle/bin/')) {
-    return 90;
-  }
-  return 10;
-}
-
 async function resolveExecutable() {
   const candidates = [];
   for (const file of await collectFiles(stagedRoot)) {
-    const score = candidateScore(file);
+    const score = nativeExecutableCandidateScore(file, process.platform);
     if (score >= 0 && (await isExecutable(file))) {
       candidates.push({ file, score });
     }

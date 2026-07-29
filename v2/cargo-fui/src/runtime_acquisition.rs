@@ -8,6 +8,8 @@ use serde::Deserialize;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "windows")]
+use std::sync::Arc;
 
 pub const DEFAULT_NATIVE_RUNTIME_RELEASE_BASE_URL: &str =
     "https://github.com/zion-sati/EffinDOM/releases/download";
@@ -59,12 +61,25 @@ pub struct UreqRuntimeDownloader;
 
 impl RuntimeDownloader for UreqRuntimeDownloader {
     fn download(&self, url: &str) -> Result<Vec<u8>> {
-        let response = ureq::get(url)
-            .call()
-            .map_err(|source| Error::RuntimeDownload {
-                url: url.to_string(),
-                message: source.to_string(),
-            })?;
+        #[cfg(target_os = "windows")]
+        let response = {
+            let connector =
+                ureq::native_tls::TlsConnector::new().map_err(|source| Error::RuntimeDownload {
+                    url: url.to_string(),
+                    message: format!("initialize Windows TLS: {source}"),
+                })?;
+            ureq::builder()
+                .tls_connector(Arc::new(connector))
+                .build()
+                .get(url)
+                .call()
+        };
+        #[cfg(not(target_os = "windows"))]
+        let response = ureq::get(url).call();
+        let response = response.map_err(|source| Error::RuntimeDownload {
+            url: url.to_string(),
+            message: source.to_string(),
+        })?;
         let mut bytes = Vec::new();
         response
             .into_reader()

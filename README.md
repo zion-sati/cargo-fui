@@ -14,8 +14,18 @@ WebAssembly and use the EffinDOM browser runtime.
 
 ## Start here
 
-Install stable Rust with [rustup](https://rustup.rs/). Rustup includes Cargo on
-macOS, Windows, and Linux. Confirm both commands are available:
+Install the native compiler and linker for your operating system first. Cargo
+needs it while compiling `cargo-fui` and FUI-RS applications:
+
+- macOS requires the Xcode Command Line Tools (`xcode-select --install`).
+- Windows requires Visual Studio 2022 Build Tools with the **Desktop development
+  with C++** workload and a Windows SDK. Windows ARM64 also requires the ARM64
+  C++ build tools.
+- Linux requires a C/C++ compiler toolchain plus the Vulkan, Fontconfig, D-Bus,
+  X11, and Xext development libraries used by the EffinDOM native host.
+
+Then install stable Rust with [rustup](https://rustup.rs/). Rustup includes Cargo
+on macOS, Windows, and Linux. Confirm both commands are available:
 
 ```bash
 rustc --version
