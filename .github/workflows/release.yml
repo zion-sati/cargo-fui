@@ -72,26 +72,6 @@ jobs:
         env:
           RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
         run: node scripts/ci/stamp-release-version.mjs --release-version "$RELEASE_VERSION"
-      - name: Verify publishable packaging library
-        run: cargo package --manifest-path v2/native/packaging/Cargo.toml --allow-dirty
-      - name: Authenticate packaging crate
-        id: crates_io_packaging
-        uses: rust-lang/crates-io-auth-action@v1
-      - name: Publish packaging library idempotently
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_packaging.outputs.token }}
-          RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
-        run: node scripts/ci/publish-crate-idempotently.mjs --manifest-path v2/native/packaging/Cargo.toml --crate effindom-native-packaging --version "$RELEASE_VERSION"
-      - name: Wait for packaging library index propagation
-        env:
-          RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
-        run: |
-          for attempt in $(seq 1 30); do
-            if cargo info "effindom-native-packaging@$RELEASE_VERSION" >/dev/null 2>&1; then exit 0; fi
-            sleep 10
-          done
-          echo "effindom-native-packaging@$RELEASE_VERSION did not reach the Cargo index" >&2
-          exit 1
       - name: Authenticate cargo-fui crate
         id: crates_io_cli
         uses: rust-lang/crates-io-auth-action@v1
@@ -107,6 +87,6 @@ jobs:
           {
             echo '## cargo-fui released'
             echo
-            echo "Crates: cargo-fui@${{ needs.validate.outputs.release_version }}, effindom-native-packaging@${{ needs.validate.outputs.release_version }}"
+            echo "Crate: cargo-fui@${{ needs.validate.outputs.release_version }}"
             echo "Verified CI run: ${{ needs.verify_ci.outputs.ci_run_id }}"
           } >> "$GITHUB_STEP_SUMMARY"

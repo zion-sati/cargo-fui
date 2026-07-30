@@ -16,6 +16,17 @@ if (!versionPattern.test(fuiRsVersion)) {
   throw new Error(`crates.io returned an invalid FUI-RS version: ${JSON.stringify(fuiRsVersion)}`);
 }
 
+const packagingResponse = await fetch('https://crates.io/api/v1/crates/effindom-native-packaging', {
+  headers: { 'User-Agent': 'cargo-fui-updater (https://github.com/zion-sati/cargo-fui)' },
+});
+if (!packagingResponse.ok) {
+  throw new Error(`crates.io packaging lookup failed: ${packagingResponse.status} ${await packagingResponse.text()}`);
+}
+const packagingVersion = (await packagingResponse.json()).crate.max_version;
+if (!versionPattern.test(packagingVersion)) {
+  throw new Error(`crates.io returned an invalid native-packaging version: ${JSON.stringify(packagingVersion)}`);
+}
+
 const scratch = mkdtempSync(join(tmpdir(), 'cargo-fui-updater-'));
 writeFileSync(join(scratch, 'Cargo.toml'), `[package]\nname = "resolve-fui-input"\nversion = "0.0.0"\nedition = "2021"\n\n[lib]\npath = "lib.rs"\n\n[dependencies]\nfui-rs = "=${fuiRsVersion}"\n`);
 writeFileSync(join(scratch, 'lib.rs'), '');
@@ -46,4 +57,12 @@ let scaffold = readFileSync(scaffoldPath, 'utf8');
 scaffold = scaffold.replace(/const FUI_RS_VERSION: &str = "[^"]+";/, `const FUI_RS_VERSION: &str = "=${fuiRsVersion}";`);
 scaffold = scaffold.replace(/const RUNTIME_VERSION: &str = "[^"]+";/, `const RUNTIME_VERSION: &str = "${runtimeVersion}";`);
 writeFileSync(scaffoldPath, scaffold);
-console.log(`Pinned fui-rs@=${fuiRsVersion} with EffinDOM runtime ${runtimeVersion}.`);
+
+const cargoPath = join(packageDirectory, 'Cargo.toml');
+let cargo = readFileSync(cargoPath, 'utf8');
+const packagingDependency = /effindom-native-packaging\s*=\s*(?:"=[^"]+"|\{\s*path\s*=\s*"\.\.\/native\/packaging",\s*version\s*=\s*"[^"]+"\s*\})/;
+if (!packagingDependency.test(cargo)) throw new Error('Could not locate effindom-native-packaging dependency.');
+cargo = cargo.replace(packagingDependency, `effindom-native-packaging = "=${packagingVersion}"`);
+writeFileSync(cargoPath, cargo);
+execFileSync('cargo', ['generate-lockfile', '--manifest-path', cargoPath], { stdio: 'inherit' });
+console.log(`Pinned fui-rs@=${fuiRsVersion}, EffinDOM runtime ${runtimeVersion}, and effindom-native-packaging@=${packagingVersion}.`);

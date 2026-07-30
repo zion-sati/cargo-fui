@@ -10,7 +10,6 @@ on:
       - 'update-deps.sh'
       - 'scripts/ci/**'
       - 'v2/cargo-fui/**'
-      - 'v2/native/packaging/**'
   pull_request:
     paths: *cargo_fui_ci_inputs
   workflow_dispatch:
@@ -34,7 +33,6 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: node --test scripts/ci/*.test.mjs
-      - run: cargo package --manifest-path v2/native/packaging/Cargo.toml --allow-dirty
       - name: Build canonical cargo-fui source package
         run: cargo package --locked --manifest-path v2/cargo-fui/Cargo.toml --allow-dirty
       - name: Upload canonical cargo-fui source package

@@ -10,7 +10,7 @@ if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(releaseVers
   throw new Error(`invalid release version: ${JSON.stringify(releaseVersion)}`);
 }
 
-for (const path of ['v2/native/packaging/Cargo.toml', 'v2/cargo-fui/Cargo.toml']) {
+for (const path of ['v2/cargo-fui/Cargo.toml']) {
   let source = readFileSync(path, 'utf8');
   let inPackage = false;
   let stamped = false;
@@ -26,10 +26,3 @@ for (const path of ['v2/native/packaging/Cargo.toml', 'v2/cargo-fui/Cargo.toml']
   if (!stamped) throw new Error(`could not stamp ${path}`);
   writeFileSync(path, source);
 }
-
-const cargoPath = 'v2/cargo-fui/Cargo.toml';
-let cargo = readFileSync(cargoPath, 'utf8');
-const dependency = /(effindom-native-packaging = \{ path = "\.\.\/native\/packaging", version = )"[^"]+"/;
-if (!dependency.test(cargo)) throw new Error('could not locate effindom-native-packaging dependency');
-cargo = cargo.replace(dependency, `$1"${releaseVersion}"`);
-writeFileSync(cargoPath, cargo);
