@@ -245,12 +245,16 @@ fn build_native(options: &BuildOptions) -> Result<BuildResult> {
         .map(|target| target.name.replace('-', "_"))
         .ok_or_else(|| Error::Cli("native projects require a staticlib crate target".into()))?;
     let mut cargo = Command::new("cargo");
+    let macos_minimum_version = macos_minimum_version(&contract);
     cargo
         .current_dir(&options.project_root)
         .arg("build")
         .arg("--manifest-path")
         .arg(&contract.application.cargo_manifest)
         .args(["--target", &target_triple]);
+    if let Some(version) = macos_minimum_version {
+        cargo.env("MACOSX_DEPLOYMENT_TARGET", version);
+    }
     if contract.application.cargo_manifest == options.project_root.join("Cargo.toml") {
         cargo.args(["--features", "native"]);
     }
@@ -286,6 +290,7 @@ fn build_native(options: &BuildOptions) -> Result<BuildResult> {
         &rust_library,
         &executable,
         contract.target.operating_system,
+        macos_minimum_version,
     )?;
 
     let app_resources = raw_root.join("application-resources");
@@ -408,6 +413,7 @@ fn link_native(
     application_library: &Path,
     executable: &Path,
     operating_system: OperatingSystem,
+    macos_minimum_version: Option<&str>,
 ) -> Result<()> {
     let path = runtime.join("sdk/link.json");
     let link: NativeLinkMetadata = serde_json::from_slice(
@@ -472,6 +478,9 @@ fn link_native(
             .arg(&include)
             .arg("-o")
             .arg(executable);
+        if let Some(version) = macos_minimum_version {
+            command.arg(format!("-mmacosx-version-min={version}"));
+        }
         if operating_system == OperatingSystem::Linux {
             command.arg("-Wl,--start-group");
         }
@@ -500,6 +509,22 @@ fn link_native(
     run_status(&mut command, "native C++ linker")?;
     let _ = &link.runtime_library_directory;
     Ok(())
+}
+
+fn macos_minimum_version(contract: &PackageContract) -> Option<&str> {
+    deployment_target_for(
+        contract.target.operating_system,
+        contract.platform_settings.macos.minimum_version.as_deref(),
+    )
+}
+
+fn deployment_target_for(
+    operating_system: OperatingSystem,
+    configured: Option<&str>,
+) -> Option<&str> {
+    (operating_system == OperatingSystem::MacOs)
+        .then_some(configured)
+        .flatten()
 }
 
 fn supplemental_system_libraries(
@@ -852,7 +877,10 @@ fn io_error(operation: &'static str, path: &Path, source: std::io::Error) -> Err
 
 #[cfg(test)]
 mod tests {
-    use super::{paths_identify_same_file, supplemental_system_libraries, OperatingSystem};
+    use super::{
+        deployment_target_for, paths_identify_same_file, supplemental_system_libraries,
+        OperatingSystem,
+    };
     use std::fs;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -894,5 +922,18 @@ mod tests {
             vec!["oleaut32"]
         );
         assert!(supplemental_system_libraries(OperatingSystem::Linux, &declared).is_empty());
+    }
+
+    #[test]
+    fn macos_builds_use_the_configured_deployment_target_only_on_macos() {
+        assert_eq!(
+            deployment_target_for(OperatingSystem::MacOs, Some("13.0")),
+            Some("13.0")
+        );
+        assert_eq!(
+            deployment_target_for(OperatingSystem::Linux, Some("13.0")),
+            None
+        );
+        assert_eq!(deployment_target_for(OperatingSystem::MacOs, None), None);
     }
 }
