@@ -21,6 +21,7 @@ pub enum Error {
         found: u32,
         supported: u32,
     },
+    InvalidWorkerManifest(String),
     MissingCargoPackage {
         path: PathBuf,
     },
@@ -98,6 +99,9 @@ impl fmt::Display for Error {
                 formatter,
                 "fui.toml schema version {found} is not supported; expected {supported}"
             ),
+            Self::InvalidWorkerManifest(message) => {
+                write!(formatter, "invalid fui.toml worker declaration: {message}")
+            }
             Self::MissingCargoPackage { path } => write!(
                 formatter,
                 "Cargo manifest {} has no [package] table; point application.cargo-manifest at an application package manifest",

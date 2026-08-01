@@ -1,6 +1,6 @@
 use cargo_fui::{
-    resolve_package_contract, Architecture, BuildProfile, Error, OperatingSystem, PackageRequest,
-    SigningMode, CORE_ABI_VERSION, UI_ABI_VERSION,
+    load_manifest, resolve_package_contract, Architecture, BuildProfile, Error, OperatingSystem,
+    PackageRequest, SigningMode, CORE_ABI_VERSION, UI_ABI_VERSION,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -275,4 +275,137 @@ fn rejects_invalid_identifiers_icons_targets_and_signing_metadata() {
     )
     .expect_err("signed Windows package must require publisher");
     assert!(matches!(error, Error::MissingSigningMetadata { .. }));
+}
+
+#[test]
+fn parses_explicit_worker_bundle_contract() {
+    let project = TestProject::new(
+        CARGO,
+        r#"
+[application]
+identifier = "dev.effindom.sample"
+
+[[workers]]
+id = "compute"
+web-artifact = "dist/workers.wasm"
+native-cargo-manifest = "workers/Cargo.toml"
+entries = ["findPrimes", "hashFile"]
+host-services = ["appWorkerClockWallClockSinceEpochMs"]
+"#,
+    );
+    let manifest = load_manifest(project.manifest()).expect("load worker manifest");
+    assert_eq!(manifest.workers.len(), 1);
+    assert_eq!(manifest.workers[0].id, "compute");
+    assert_eq!(manifest.workers[0].entries, ["findPrimes", "hashFile"]);
+}
+
+#[test]
+fn rejects_duplicate_worker_bundles_entries_and_services() {
+    for workers in [
+        r#"
+[[workers]]
+id = "compute"
+web-artifact = "a.wasm"
+native-cargo-manifest = "a/Cargo.toml"
+entries = ["first"]
+[[workers]]
+id = "compute"
+web-artifact = "b.wasm"
+native-cargo-manifest = "b/Cargo.toml"
+entries = ["second"]
+"#,
+        r#"
+[[workers]]
+id = "first"
+web-artifact = "a.wasm"
+native-cargo-manifest = "a/Cargo.toml"
+entries = ["shared"]
+[[workers]]
+id = "second"
+web-artifact = "b.wasm"
+native-cargo-manifest = "b/Cargo.toml"
+entries = ["shared"]
+"#,
+        r#"
+[[workers]]
+id = "compute"
+web-artifact = "a.wasm"
+native-cargo-manifest = "a/Cargo.toml"
+entries = ["first"]
+host-services = ["clock", "clock"]
+"#,
+    ] {
+        let project = TestProject::new(
+            CARGO,
+            &format!("[application]\nidentifier = \"dev.effindom.sample\"\n{workers}"),
+        );
+        assert!(matches!(
+            load_manifest(project.manifest()),
+            Err(Error::InvalidWorkerManifest(_))
+        ));
+    }
+}
+
+#[test]
+fn rejects_missing_or_malformed_worker_fields() {
+    for workers in [
+        r#"
+[[workers]]
+id = "compute"
+native-cargo-manifest = "workers/Cargo.toml"
+entries = ["findPrimes"]
+"#,
+        r#"
+[[workers]]
+id = "compute"
+web-artifact = "workers.wasm"
+native-cargo-manifest = "workers/Cargo.toml"
+entries = "findPrimes"
+"#,
+    ] {
+        let project = TestProject::new(
+            CARGO,
+            &format!("[application]\nidentifier = \"dev.effindom.sample\"\n{workers}"),
+        );
+        assert!(matches!(
+            load_manifest(project.manifest()),
+            Err(Error::ParseFuiManifest { .. })
+        ));
+    }
+}
+
+#[test]
+fn rejects_worker_bundle_without_entries() {
+    let project = TestProject::new(
+        CARGO,
+        r#"
+[application]
+identifier = "dev.effindom.sample"
+[[workers]]
+id = "compute"
+web-artifact = "workers.wasm"
+native-cargo-manifest = "workers/Cargo.toml"
+entries = []
+"#,
+    );
+    assert!(matches!(
+        load_manifest(project.manifest()),
+        Err(Error::InvalidWorkerManifest(_))
+    ));
+}
+
+#[test]
+fn rejects_unsafe_or_non_wasm_worker_artifact_paths() {
+    for artifact in ["../workers.wasm", "/tmp/workers.wasm", "workers.bin"] {
+        let project = TestProject::new(
+            CARGO,
+            &format!(
+                "[application]\nidentifier = \"dev.effindom.sample\"\n[[workers]]\nid = \"compute\"\nweb-artifact = {artifact:?}\nnative-cargo-manifest = \"workers/Cargo.toml\"\nentries = [\"findPrimes\"]\n"
+            ),
+        );
+        assert!(matches!(
+            load_manifest(project.manifest()),
+            Err(Error::InvalidWorkerManifest(_))
+        ));
+    }
 }

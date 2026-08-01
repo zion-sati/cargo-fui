@@ -60,11 +60,13 @@ fn templates_keep_native_node_free_and_universal_boundaries_explicit() {
     assert!(!native.join("package.json").exists());
     assert!(!native.join("harness.ts").exists());
     assert!(native.join("src/services/native.rs").is_file());
+    assert!(native.join("worker/src/lib.rs").is_file());
     assert!(!native.join("src/services/web.rs").exists());
     assert!(fs::read_to_string(native.join("Cargo.toml"))
         .unwrap()
         .contains("\n[workspace]\n"));
     let native_manifest = load_manifest(native.join("fui.toml")).unwrap();
+    assert_eq!(native_manifest.workers[0].entries, ["sampleWorker"]);
     assert_eq!(
         native_manifest.application.targets,
         vec![ApplicationTarget::Native]
@@ -76,6 +78,7 @@ fn templates_keep_native_node_free_and_universal_boundaries_explicit() {
     assert!(web.join("harness.ts").is_file());
     assert!(!web.join("src/services/native.rs").exists());
     assert!(web.join("src/services/web.rs").is_file());
+    assert!(web.join("worker/src/lib.rs").is_file());
     assert!(fs::read_to_string(web.join("Cargo.toml"))
         .unwrap()
         .contains("\n[workspace]\n"));
@@ -89,6 +92,7 @@ fn templates_keep_native_node_free_and_universal_boundaries_explicit() {
     create(&universal, ProjectTemplate::Universal);
     assert!(universal.join("crates/ui/src/services/native.rs").is_file());
     assert!(universal.join("crates/ui/src/services/web.rs").is_file());
+    assert!(universal.join("crates/worker/src/lib.rs").is_file());
     assert_eq!(
         load_manifest(universal.join("fui.toml"))
             .unwrap()
@@ -109,6 +113,7 @@ fn templates_keep_native_node_free_and_universal_boundaries_explicit() {
     let source = fs::read_to_string(universal.join("crates/ui/src/lib.rs")).unwrap();
     assert!(source.contains("ui!"));
     assert!(source.contains("Application::caption"));
+    assert!(source.contains("Worker::new(\"./workers.wasm\", \"sampleWorker\")"));
     assert!(!source.contains("extern \"C\" fn __runApp"));
     assert!(universal.join("loading-overlay-styles.html").is_file());
     assert_png(&universal.join("assets/application-icon.png"));
@@ -124,6 +129,7 @@ fn templates_generate_target_specific_first_run_guidance() {
     assert!(native_readme.contains("without Electron or a WebView"));
     assert!(native_readme.contains("cargo fui package"));
     assert!(native_readme.contains("src/services/native.rs"));
+    assert!(native_readme.contains("shared Worker implementation used by native and web builds"));
     assert!(!native_readme.contains("Node.js LTS"));
 
     let web = temp.0.join("web-readme");
@@ -132,6 +138,7 @@ fn templates_generate_target_specific_first_run_guidance() {
     assert!(web_readme.contains("Node.js LTS"));
     assert!(web_readme.contains("intentionally unavailable for web-only projects"));
     assert!(web_readme.contains("src/services/web.rs"));
+    assert!(web_readme.contains("Worker implementation compiled to WebAssembly"));
 
     let universal = temp.0.join("universal-readme");
     create(&universal, ProjectTemplate::Universal);
@@ -139,6 +146,7 @@ fn templates_generate_target_specific_first_run_guidance() {
     assert!(universal_readme.contains("shared retained UI"));
     assert!(universal_readme.contains("crates/ui"));
     assert!(universal_readme.contains("Produce optimized native and browser builds"));
+    assert!(universal_readme.contains("Worker implementation linked natively or compiled to WebAssembly"));
 
     for readme in [native_readme, web_readme, universal_readme] {
         assert!(readme.contains("https://rustup.rs/"));

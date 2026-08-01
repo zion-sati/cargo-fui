@@ -8,6 +8,7 @@ mod runtime_acquisition;
 mod scaffold;
 mod signing;
 mod target;
+mod worker_registry;
 
 pub use build::{build_project, dev_project, package_project, BuildOptions, BuildResult};
 pub use cli::{run_cli, CliIo};
@@ -39,7 +40,7 @@ pub use error::{Error, Result};
 pub use manifest::{
     load_manifest, ApplicationManifest, ApplicationTarget, AssetsManifest, FuiManifest,
     LinuxPackageSettings, MacOsPackageSettings, PackageSettings, WindowsPackageSettings,
-    FUI_MANIFEST_SCHEMA_VERSION,
+    WorkerBundleManifest, FUI_MANIFEST_SCHEMA_VERSION,
 };
 pub use native_bundle::{
     stage_native_bundle, NativeBuildOutput, NativeLibraryOutput, StagedNativeBundle,
@@ -61,3 +62,6 @@ pub use signing::{
     WindowsSigningInputs,
 };
 pub use target::{Architecture, OperatingSystem, TargetPlatform};
+pub use worker_registry::{
+    generate_native_worker_registry, NativeWorkerRegistryEntry, NativeWorkerRegistrySource,
+};

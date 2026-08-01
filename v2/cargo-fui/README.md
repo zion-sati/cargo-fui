@@ -76,6 +76,25 @@ Creates one target-independent retained UI crate with explicit native and web
 adapters. `cargo fui build` builds both outputs. Use this when the same product
 should run as a native desktop application and in a browser.
 
+## Portable workers
+
+Generated projects include a worker crate and a `[[workers]]` declaration in
+`fui.toml`. Keep application code target-neutral:
+
+```rust,ignore
+let worker = Worker::new("./workers.wasm", "sampleWorker")
+    .on_progress(|event| println!("{}", event.message))
+    .on_complete(|event| println!("{}", event.result))
+    .start("input");
+```
+
+For web builds, `cargo-fui` compiles the worker crate to the declared Worker
+WASM artifact. For native builds, it generates a registry, links the same worker
+crate into the application, and runs the selected entry on a dedicated thread.
+The `./workers.wasm` string is a portable worker identity; native applications
+do not load that file. Long-running jobs must cooperate with cancellation by
+yielding or checking cancellation regularly.
+
 ## Commands
 
 ```bash

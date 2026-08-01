@@ -86,6 +86,10 @@ fn generated_rust_targets_are_format_clean_and_compile() {
 
 fn replace_fui_dependencies(root: &Path, fui_rs: &Path) {
     let replacement = format!("fui = {{ package = \"fui-rs\", path = {:?} }}", fui_rs);
+    let worker_replacement = format!(
+        "fui = {{ package = \"fui-rs\", path = {:?}, default-features = false, features = [\"worker-runtime\"] }}",
+        fui_rs
+    );
     for path in cargo_manifests(root) {
         let cargo = fs::read_to_string(&path)
             .unwrap()
@@ -95,7 +99,11 @@ fn replace_fui_dependencies(root: &Path, fui_rs: &Path) {
                     .trim_start()
                     .starts_with("fui = { package = \"fui-rs\", version = ")
                 {
-                    replacement.as_str()
+                    if line.contains("worker-runtime") {
+                        worker_replacement.as_str()
+                    } else {
+                        replacement.as_str()
+                    }
                 } else {
                     line
                 }

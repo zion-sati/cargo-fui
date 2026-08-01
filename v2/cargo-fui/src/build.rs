@@ -1,11 +1,11 @@
 use crate::{
     acquire_native_runtime, create_appimage, create_dmg, create_msix, encode_browser_favicon,
-    load_icon_source, load_manifest, resolve_package_contract,
+    generate_native_worker_registry, load_icon_source, load_manifest, resolve_package_contract,
     runtime_requirement_from_cargo_metadata, stage_native_bundle, AppImageInputs,
     ApplicationTarget, BuildProfile, DmgInputs, Error, MsixInputs, NativeBuildOutput,
-    NativeLibraryOutput, NativeRuntimeAcquisition, NativeRuntimeTarget, OperatingSystem,
-    OverwritePolicy, PackageContract, PackageRequest, Result, SigningMode, UreqRuntimeDownloader,
-    DEFAULT_NATIVE_RUNTIME_RELEASE_BASE_URL,
+    NativeLibraryOutput, NativeRuntimeAcquisition, NativeRuntimeTarget, NativeWorkerRegistryEntry,
+    OperatingSystem, OverwritePolicy, PackageContract, PackageRequest, Result, SigningMode,
+    UreqRuntimeDownloader, WorkerBundleManifest, DEFAULT_NATIVE_RUNTIME_RELEASE_BASE_URL,
 };
 use serde::Deserialize;
 use std::env;
@@ -212,6 +212,7 @@ fn project_targets(options: &BuildOptions) -> Result<Vec<ApplicationTarget>> {
 
 fn build_native(options: &BuildOptions) -> Result<BuildResult> {
     let target_triple = host_target()?;
+    let fui_manifest = load_manifest(options.project_root.join("fui.toml"))?;
     let contract = resolve_package_contract(
         options.project_root.join("fui.toml"),
         PackageRequest::new(&target_triple, options.profile, SigningMode::Unsigned),
@@ -244,6 +245,22 @@ fn build_native(options: &BuildOptions) -> Result<BuildResult> {
         .find(|target| target.crate_types.iter().any(|kind| kind == "staticlib"))
         .map(|target| target.name.replace('-', "_"))
         .ok_or_else(|| Error::Cli("native projects require a staticlib crate target".into()))?;
+    let profile = profile_name(options.profile);
+    let generated_root = options
+        .project_root
+        .join("target/fui")
+        .join(&target_triple)
+        .join(profile)
+        .join("generated");
+    recreate_directory(&generated_root)?;
+    let worker_registry = generated_root.join("fui_native_worker_registry.rs");
+    let worker_entries =
+        native_worker_registry_entries(&options.project_root, &metadata, &fui_manifest.workers)?;
+    fs::write(
+        &worker_registry,
+        generate_native_worker_registry(&worker_entries).source,
+    )
+    .map_err(|source| io_error("write native worker registry", &worker_registry, source))?;
     let mut cargo = Command::new("cargo");
     let macos_minimum_version = macos_minimum_version(&contract);
     cargo
@@ -252,10 +269,19 @@ fn build_native(options: &BuildOptions) -> Result<BuildResult> {
         .arg("--manifest-path")
         .arg(&contract.application.cargo_manifest)
         .args(["--target", &target_triple]);
+    cargo
+        .env("FUI_NATIVE_WORKER_REGISTRY_RS", &worker_registry)
+        .env(
+            "RUSTFLAGS",
+            native_worker_rustflags(env::var("RUSTFLAGS").ok().as_deref()),
+        );
     if let Some(version) = macos_minimum_version {
         cargo.env("MACOSX_DEPLOYMENT_TARGET", version);
     }
-    if contract.application.cargo_manifest == options.project_root.join("Cargo.toml") {
+    if paths_identify_same_file(
+        &contract.application.cargo_manifest,
+        &options.project_root.join("Cargo.toml"),
+    ) {
         cargo.args(["--features", "native"]);
     }
     if options.profile == BuildProfile::Release {
@@ -265,7 +291,6 @@ fn build_native(options: &BuildOptions) -> Result<BuildResult> {
         cargo.arg("--offline");
     }
     run_status(&mut cargo, "cargo build")?;
-    let profile = profile_name(options.profile);
     let rust_library = metadata
         .target_directory
         .join(&target_triple)
@@ -360,6 +385,7 @@ fn build_web(options: &BuildOptions) -> Result<BuildResult> {
         fs::write(&destination, favicon)
             .map_err(|source| io_error("write browser favicon", &destination, source))?;
     }
+    build_web_workers(options, &fui_manifest.workers)?;
     let mut cargo = Command::new("cargo");
     cargo
         .current_dir(&options.project_root)
@@ -406,6 +432,139 @@ fn build_web(options: &BuildOptions) -> Result<BuildResult> {
         path: options.project_root.join("public"),
         contract: None,
     })
+}
+
+fn build_web_workers(options: &BuildOptions, workers: &[WorkerBundleManifest]) -> Result<()> {
+    for worker in workers {
+        let manifest = options.project_root.join(&worker.native_cargo_manifest);
+        let mut cargo = Command::new("cargo");
+        cargo
+            .current_dir(&options.project_root)
+            .arg("rustc")
+            .arg("--manifest-path")
+            .arg(&manifest)
+            .args([
+                "--target",
+                "wasm32-unknown-unknown",
+                "--lib",
+                "--crate-type",
+                "cdylib",
+            ]);
+        if options.profile == BuildProfile::Release {
+            cargo.arg("--release");
+        }
+        if options.offline {
+            cargo.arg("--offline");
+        }
+        run_status(
+            &mut cargo,
+            &format!("build Worker bundle {:?} for wasm32", worker.id),
+        )?;
+
+        let metadata_bytes = cargo_output_with_manifest(
+            &options.project_root,
+            &manifest,
+            ["metadata", "--format-version", "1", "--no-deps"],
+            "cargo metadata for Worker bundle",
+        )?;
+        let metadata: CargoMetadata =
+            serde_json::from_slice(&metadata_bytes).map_err(Error::SerializeLinkMetadata)?;
+        let package = application_package(&metadata, &manifest)?;
+        let crate_name = package
+            .targets
+            .iter()
+            .find(|target| {
+                target
+                    .crate_types
+                    .iter()
+                    .any(|kind| kind == "lib" || kind == "rlib")
+            })
+            .map(|target| target.name.replace('-', "_"))
+            .ok_or_else(|| {
+                Error::Cli(format!(
+                    "worker bundle {:?} requires a Rust library target in {}",
+                    worker.id,
+                    manifest.display()
+                ))
+            })?;
+        let wasm = metadata
+            .target_directory
+            .join("wasm32-unknown-unknown")
+            .join(profile_name(options.profile))
+            .join(format!("{crate_name}.wasm"));
+        let destination = web_worker_destination(&options.project_root, &worker.web_artifact);
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent).map_err(|source| {
+                io_error("create Worker artifact output directory", parent, source)
+            })?;
+        }
+        fs::copy(&wasm, &destination)
+            .map_err(|source| io_error("stage Worker WebAssembly", &wasm, source))?;
+    }
+    Ok(())
+}
+
+fn web_worker_destination(project_root: &Path, artifact: &Path) -> PathBuf {
+    let relative = artifact
+        .components()
+        .filter_map(|component| match component {
+            std::path::Component::Normal(value) => Some(value),
+            _ => None,
+        })
+        .collect::<PathBuf>();
+    project_root.join("public").join(relative)
+}
+
+fn native_worker_registry_entries(
+    project_root: &Path,
+    metadata: &CargoMetadata,
+    workers: &[WorkerBundleManifest],
+) -> Result<Vec<NativeWorkerRegistryEntry>> {
+    let mut entries = Vec::new();
+    for worker in workers {
+        let manifest = project_root.join(&worker.native_cargo_manifest);
+        let package = application_package(metadata, &manifest).map_err(|_| {
+            Error::Cli(format!(
+                "worker bundle {:?} native crate {} must be a dependency of the application crate",
+                worker.id,
+                manifest.display()
+            ))
+        })?;
+        let crate_name = package
+            .targets
+            .iter()
+            .find(|target| {
+                target
+                    .crate_types
+                    .iter()
+                    .any(|kind| kind == "lib" || kind == "rlib")
+            })
+            .map(|target| target.name.replace('-', "_"))
+            .ok_or_else(|| {
+                Error::Cli(format!(
+                    "worker bundle {:?} requires a Rust library target in {}",
+                    worker.id,
+                    manifest.display()
+                ))
+            })?;
+        for entry in &worker.entries {
+            entries.push(NativeWorkerRegistryEntry {
+                artifact: worker.web_artifact.to_string_lossy().into_owned(),
+                entry: entry.clone(),
+                native_crate: crate_name.clone(),
+                host_services: worker.host_services.clone(),
+            });
+        }
+    }
+    Ok(entries)
+}
+
+fn native_worker_rustflags(existing: Option<&str>) -> String {
+    let required = "--cfg fui_native_worker_registry --check-cfg=cfg(fui_native_worker_registry)";
+    match existing.filter(|flags| !flags.trim().is_empty()) {
+        Some(flags) => format!("{flags} {required}"),
+        None => required.to_owned(),
+    }
 }
 
 fn link_native(

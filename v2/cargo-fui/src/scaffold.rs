@@ -2,9 +2,10 @@ use crate::{Error, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const FUI_RS_VERSION: &str = "=0.2.10";
-const RUNTIME_VERSION: &str = "0.2.8";
+const FUI_RS_VERSION: &str = "=0.2.11";
+const RUNTIME_VERSION: &str = "0.2.9";
 const ICON: &[u8] = include_bytes!("../templates/application-icon.png");
+const WORKER_SOURCE: &str = include_str!("../templates/worker.rs");
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProjectTemplate {
@@ -81,6 +82,7 @@ fn write_project(options: &NewProjectOptions) -> Result<()> {
         &options.destination.join("src/services/mod.rs"),
         &services_module(options.template),
     )?;
+    write_worker_crate(&options.destination, "worker", &package)?;
     if options.template.includes_native() {
         write_text(
             &options.destination.join("src/services/native.rs"),
@@ -140,12 +142,12 @@ fn write_universal_project(
 ) -> Result<()> {
     write_text(
         &options.destination.join("Cargo.toml"),
-        "[workspace]\nmembers = [\"crates/ui\", \"crates/native\", \"crates/web\"]\nresolver = \"2\"\n\n[profile.dev]\npanic = \"abort\"\n\n[profile.release]\nopt-level = 3\nlto = true\ncodegen-units = 1\npanic = \"abort\"\n",
+        "[workspace]\nmembers = [\"crates/ui\", \"crates/native\", \"crates/web\", \"crates/worker\"]\nresolver = \"2\"\n\n[profile.dev]\npanic = \"abort\"\n\n[profile.release]\nopt-level = 3\nlto = true\ncodegen-units = 1\npanic = \"abort\"\n",
     )?;
     write_text(
         &options.destination.join("fui.toml"),
         &format!(
-            "schema-version = 1\n\n[application]\nidentifier = \"dev.example.{package}\"\ncaption = \"{}\"\nicon = \"assets/application-icon.png\"\ncargo-manifest = \"crates/native/Cargo.toml\"\nweb-cargo-manifest = \"crates/web/Cargo.toml\"\ntargets = [\"native\", \"web\"]\n\n[assets]\nsources = [\"assets\"]\n\n[package.macos]\nminimum-version = \"13.0\"\n\n[package.windows]\npublisher = \"CN=Development\"\n\n[package.linux]\ncategories = [\"Utility\"]\n",
+            "schema-version = 1\n\n[application]\nidentifier = \"dev.example.{package}\"\ncaption = \"{}\"\nicon = \"assets/application-icon.png\"\ncargo-manifest = \"crates/native/Cargo.toml\"\nweb-cargo-manifest = \"crates/web/Cargo.toml\"\ntargets = [\"native\", \"web\"]\n\n[assets]\nsources = [\"assets\"]\n\n[[workers]]\nid = \"sample\"\nweb-artifact = \"./workers.wasm\"\nnative-cargo-manifest = \"crates/worker/Cargo.toml\"\nentries = [\"sampleWorker\"]\n\n[package.macos]\nminimum-version = \"13.0\"\n\n[package.windows]\npublisher = \"CN=Development\"\n\n[package.linux]\ncategories = [\"Utility\"]\n",
             options.project_name
         ),
     )?;
@@ -192,6 +194,7 @@ fn write_universal_project(
         &options.destination.join("crates/web/src/lib.rs"),
         &format!("use {crate_name}_ui::App;\n\nfui::fui_app!(App, App::new);\n"),
     )?;
+    write_worker_crate(&options.destination, "crates/worker", package)?;
     write_web_files(options, package)?;
     write_common_files(options, ProjectTemplate::Universal)?;
     write_bytes(
@@ -208,8 +211,13 @@ fn adapter_manifest(package: &str, crate_name: &str, crate_type: &str, native: b
     } else {
         ""
     };
+    let worker_dependency = if native {
+        format!("{base_crate}_worker = {{ package = \"{base_package}-worker\", path = \"../worker\" }}\n")
+    } else {
+        String::new()
+    };
     format!(
-        "[package]\nname = \"{package}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"{crate_name}\"\ncrate-type = [\"{crate_type}\"]\n\n[dependencies]\nfui = {{ package = \"fui-rs\", version = \"{FUI_RS_VERSION}\" }}\n{base_crate}_ui = {{ package = \"{base_package}-ui\", path = \"../ui\"{native_feature} }}\n"
+        "[package]\nname = \"{package}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"{crate_name}\"\ncrate-type = [\"{crate_type}\"]\n\n[dependencies]\nfui = {{ package = \"fui-rs\", version = \"{FUI_RS_VERSION}\" }}\n{base_crate}_ui = {{ package = \"{base_package}-ui\", path = \"../ui\"{native_feature} }}\n{worker_dependency}"
     )
 }
 
@@ -273,7 +281,7 @@ fn cargo_manifest(package: &str, crate_name: &str, template: ProjectTemplate) ->
         "[\"cdylib\", \"staticlib\"]"
     };
     format!(
-        "[package]\nname = \"{package}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"{crate_name}\"\ncrate-type = {crate_types}\n\n[features]\ndefault = []\nnative = [\"fui/native-runtime\"]\n\n[dependencies]\nfui = {{ package = \"fui-rs\", version = \"{FUI_RS_VERSION}\" }}\n\n[profile.dev]\npanic = \"abort\"\n\n[profile.release]\nopt-level = 3\nlto = true\ncodegen-units = 1\npanic = \"abort\"\n\n[workspace]\n"
+        "[package]\nname = \"{package}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"{crate_name}\"\ncrate-type = {crate_types}\n\n[features]\ndefault = []\nnative = [\"fui/native-runtime\"]\n\n[dependencies]\nfui = {{ package = \"fui-rs\", version = \"{FUI_RS_VERSION}\" }}\n{crate_name}_worker = {{ package = \"{package}-worker\", path = \"worker\" }}\n\n[profile.dev]\npanic = \"abort\"\n\n[profile.release]\nopt-level = 3\nlto = true\ncodegen-units = 1\npanic = \"abort\"\n\n[workspace]\nmembers = [\"worker\"]\n"
     )
 }
 
@@ -284,8 +292,20 @@ fn fui_manifest(package: &str, template: ProjectTemplate) -> String {
         ProjectTemplate::Universal => "[\"native\", \"web\"]",
     };
     format!(
-        "schema-version = 1\n\n[application]\nidentifier = \"dev.example.{package}\"\ncaption = \"{package}\"\nicon = \"assets/application-icon.png\"\ntargets = {targets}\n\n[assets]\nsources = [\"assets\"]\n\n[package.macos]\nminimum-version = \"13.0\"\n\n[package.windows]\npublisher = \"CN=Development\"\n\n[package.linux]\ncategories = [\"Utility\"]\n"
+        "schema-version = 1\n\n[application]\nidentifier = \"dev.example.{package}\"\ncaption = \"{package}\"\nicon = \"assets/application-icon.png\"\ntargets = {targets}\n\n[assets]\nsources = [\"assets\"]\n\n[[workers]]\nid = \"sample\"\nweb-artifact = \"./workers.wasm\"\nnative-cargo-manifest = \"worker/Cargo.toml\"\nentries = [\"sampleWorker\"]\n\n[package.macos]\nminimum-version = \"13.0\"\n\n[package.windows]\npublisher = \"CN=Development\"\n\n[package.linux]\ncategories = [\"Utility\"]\n"
     )
+}
+
+fn write_worker_crate(root: &Path, relative: &str, package: &str) -> Result<()> {
+    let worker_root = root.join(relative);
+    write_text(
+        &worker_root.join("Cargo.toml"),
+        &format!(
+            "[package]\nname = \"{package}-worker\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nfui = {{ package = \"fui-rs\", version = \"{FUI_RS_VERSION}\", default-features = false, features = [\"worker-runtime\"] }}\n\n[lib]\nname = \"{}_worker\"\ncrate-type = [\"rlib\"]\n",
+            package.replace('-', "_")
+        ),
+    )?;
+    write_text(&worker_root.join("src/lib.rs"), WORKER_SOURCE)
 }
 
 fn rust_source(caption: &str, entrypoint: bool) -> String {
@@ -314,19 +334,19 @@ fn readme(name: &str, template: ProjectTemplate) -> String {
             "A native FUI-RS desktop application. It renders through EffinDOM without Electron or a WebView.",
             "- The stable Rust toolchain from [rustup](https://rustup.rs/)\n- `cargo-fui`, installed with `cargo install --locked cargo-fui`\n- The platform prerequisites documented by [`cargo-fui`](https://github.com/zion-sati/cargo-fui#platform-prerequisites)",
             "```bash\n# Build and run the native app in the default debug profile.\ncargo fui dev\n\n# Produce an optimized native build.\ncargo fui build --release\n\n# Produce the platform package or release archive.\ncargo fui package\n```",
-            "- `src/lib.rs` owns the retained UI and application lifecycle.\n- `src/services/native.rs` is the boundary for native platform services.\n- `fui.toml` defines application metadata, assets, targets, and packaging settings.\n- `assets/application-icon.png` is the canonical application icon.",
+            "- `src/lib.rs` owns the retained UI and application lifecycle.\n- `worker` contains the shared Worker implementation used by native and web builds.\n- `src/services/native.rs` is the boundary for native platform services.\n- `fui.toml` defines application metadata, workers, assets, targets, and packaging settings.\n- `assets/application-icon.png` is the canonical application icon.",
         ),
         ProjectTemplate::Web => (
             "A browser FUI-RS application compiled to WebAssembly.",
             "- The stable Rust toolchain from [rustup](https://rustup.rs/)\n- `cargo-fui`, installed with `cargo install --locked cargo-fui`\n- A current Node.js LTS release and npm",
             "```bash\n# Build the app and serve it locally with rebuild-on-refresh development behavior.\ncargo fui dev\n\n# Produce an optimized browser build in public/.\ncargo fui build --release\n```\n\n`cargo fui package` is intentionally unavailable for web-only projects. Deploy the generated `public/` directory with your normal static-site tooling.",
-            "- `src/lib.rs` owns the retained UI and application lifecycle.\n- `src/services/web.rs` is the boundary for browser services.\n- `harness.ts` starts the EffinDOM browser harness.\n- `fui.toml` defines application metadata, assets, and targets.\n- `assets/application-icon.png` is the canonical application icon.",
+            "- `src/lib.rs` owns the retained UI and application lifecycle.\n- `worker` contains the Worker implementation compiled to WebAssembly.\n- `src/services/web.rs` is the boundary for browser services.\n- `harness.ts` starts the EffinDOM browser harness.\n- `fui.toml` defines application metadata, workers, assets, and targets.\n- `assets/application-icon.png` is the canonical application icon.",
         ),
         ProjectTemplate::Universal => (
             "A universal FUI-RS application with shared retained UI and explicit native and browser adapters. Native rendering does not use Electron or a WebView.",
             "- The stable Rust toolchain from [rustup](https://rustup.rs/)\n- `cargo-fui`, installed with `cargo install --locked cargo-fui`\n- The platform prerequisites documented by [`cargo-fui`](https://github.com/zion-sati/cargo-fui#platform-prerequisites)\n- A current Node.js LTS release and npm for the WebAssembly target",
             "```bash\n# Build and serve the browser adapter during development.\ncargo fui dev\n\n# Produce optimized native and browser builds.\ncargo fui build --release\n\n# Produce the native platform package or release archive.\ncargo fui package\n```",
-            "- `crates/ui` owns the shared retained UI and service contracts.\n- `crates/native` is the thin native application adapter.\n- `crates/web` is the thin WebAssembly application adapter.\n- `crates/ui/src/services/native.rs` and `web.rs` keep platform services explicit.\n- `fui.toml` defines shared application metadata, assets, targets, and packaging settings.\n- `assets/application-icon.png` is the canonical application icon.",
+            "- `crates/ui` owns the shared retained UI and service contracts.\n- `crates/worker` contains the Worker implementation linked natively or compiled to WebAssembly.\n- `crates/native` is the thin native application adapter.\n- `crates/web` is the thin WebAssembly application adapter.\n- `crates/ui/src/services/native.rs` and `web.rs` keep platform services explicit.\n- `fui.toml` defines shared application metadata, workers, assets, targets, and packaging settings.\n- `assets/application-icon.png` is the canonical application icon.",
         ),
     };
     format!(
