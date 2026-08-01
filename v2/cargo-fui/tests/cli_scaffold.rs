@@ -146,7 +146,8 @@ fn templates_generate_target_specific_first_run_guidance() {
     assert!(universal_readme.contains("shared retained UI"));
     assert!(universal_readme.contains("crates/ui"));
     assert!(universal_readme.contains("Produce optimized native and browser builds"));
-    assert!(universal_readme.contains("Worker implementation linked natively or compiled to WebAssembly"));
+    assert!(universal_readme
+        .contains("Worker implementation linked natively or compiled to WebAssembly"));
 
     for readme in [native_readme, web_readme, universal_readme] {
         assert!(readme.contains("https://rustup.rs/"));
