@@ -281,7 +281,7 @@ fn cargo_manifest(package: &str, crate_name: &str, template: ProjectTemplate) ->
         "[\"cdylib\", \"staticlib\"]"
     };
     format!(
-        "[package]\nname = \"{package}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"{crate_name}\"\ncrate-type = {crate_types}\n\n[features]\ndefault = []\nnative = [\"fui/native-runtime\"]\n\n[dependencies]\nfui = {{ package = \"fui-rs\", version = \"{FUI_RS_VERSION}\" }}\n{crate_name}_worker = {{ package = \"{package}-worker\", path = \"worker\" }}\n\n[profile.dev]\npanic = \"abort\"\n\n[profile.release]\nopt-level = 3\nlto = true\ncodegen-units = 1\npanic = \"abort\"\n\n[workspace]\nmembers = [\"worker\"]\n"
+        "[package]\nname = \"{package}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"{crate_name}\"\ncrate-type = {crate_types}\n\n[features]\ndefault = []\nnative = [\"fui/native-runtime\"]\n\n[dependencies]\nfui = {{ package = \"fui-rs\", version = \"{FUI_RS_VERSION}\" }}\n\n[target.'cfg(not(target_arch = \"wasm32\"))'.dependencies]\n{crate_name}_worker = {{ package = \"{package}-worker\", path = \"worker\" }}\n\n[profile.dev]\npanic = \"abort\"\n\n[profile.release]\nopt-level = 3\nlto = true\ncodegen-units = 1\npanic = \"abort\"\n\n[workspace]\nmembers = [\"worker\"]\n"
     )
 }
 

@@ -65,6 +65,7 @@ fn templates_keep_native_node_free_and_universal_boundaries_explicit() {
     assert!(fs::read_to_string(native.join("Cargo.toml"))
         .unwrap()
         .contains("\n[workspace]\n"));
+    assert_worker_is_native_only(&native.join("Cargo.toml"), "native_app_worker");
     let native_manifest = load_manifest(native.join("fui.toml")).unwrap();
     assert_eq!(native_manifest.workers[0].entries, ["sampleWorker"]);
     assert_eq!(
@@ -82,6 +83,7 @@ fn templates_keep_native_node_free_and_universal_boundaries_explicit() {
     assert!(fs::read_to_string(web.join("Cargo.toml"))
         .unwrap()
         .contains("\n[workspace]\n"));
+    assert_worker_is_native_only(&web.join("Cargo.toml"), "web_app_worker");
     assert!(web.join("loading-overlay-styles.html").is_file());
     assert!(web.join("loading-overlay-body.html").is_file());
     assert!(fs::read_to_string(web.join("index.html"))
@@ -117,6 +119,15 @@ fn templates_keep_native_node_free_and_universal_boundaries_explicit() {
     assert!(!source.contains("extern \"C\" fn __runApp"));
     assert!(universal.join("loading-overlay-styles.html").is_file());
     assert_png(&universal.join("assets/application-icon.png"));
+}
+
+fn assert_worker_is_native_only(manifest: &Path, dependency: &str) {
+    const NATIVE_DEPENDENCIES: &str =
+        "\n[target.'cfg(not(target_arch = \"wasm32\"))'.dependencies]\n";
+    let cargo = fs::read_to_string(manifest).unwrap();
+    let (wasm_visible, native_only) = cargo.split_once(NATIVE_DEPENDENCIES).unwrap();
+    assert!(!wasm_visible.contains(dependency));
+    assert!(native_only.contains(dependency));
 }
 
 #[test]
