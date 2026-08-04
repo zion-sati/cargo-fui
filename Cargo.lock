@@ -196,9 +196,9 @@ dependencies = [
 
 [[package]]
 name = "effindom-native-packaging"
-version = "0.1.4"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef59ed5f6456a7a962fb711c25a32ef096ba476fcd885a59ed5050d7302c5744"
+checksum = "ae1702325a270e07e4a76e16a8f5f399232c467c12cac56662617138803955c4"
 dependencies = [
  "image",
  "resvg",
