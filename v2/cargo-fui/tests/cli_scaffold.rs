@@ -5,6 +5,7 @@ use cargo_fui::{
 use std::cell::RefCell;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -92,6 +93,7 @@ fn templates_keep_native_node_free_and_universal_boundaries_explicit() {
     assert!(fs::read_to_string(web.join("index.html"))
         .unwrap()
         .contains("data-effindom-canvas-size-source"));
+    assert_node_runnable_asset_template(&web);
 
     let universal = temp.0.join("universal-app");
     create(&universal, ProjectTemplate::Universal);
@@ -121,7 +123,39 @@ fn templates_keep_native_node_free_and_universal_boundaries_explicit() {
     assert!(source.contains("Worker::new(\"./workers.wasm\", \"sampleWorker\")"));
     assert!(!source.contains("extern \"C\" fn __runApp"));
     assert!(universal.join("loading-overlay-styles.html").is_file());
+    assert_node_runnable_asset_template(&universal);
     assert_png(&universal.join("assets/application-icon.png"));
+}
+
+fn assert_node_runnable_asset_template(project: &Path) {
+    let source = fs::read_to_string(project.join("scripts/prepare-runtime.mjs")).unwrap();
+    assert!(!source.contains("@effindomv2/runtime/fui-config"));
+    assert!(source.contains("window.__effindomFuiConfig="));
+}
+
+#[test]
+fn generated_web_asset_builder_runs_without_loading_package_typescript() {
+    let temp = TempDir::new();
+    let project = temp.0.join("web-assets");
+    create(&project, ProjectTemplate::Web);
+    let runtime = project.join("node_modules/@effindomv2/runtime/dist");
+    fs::create_dir_all(&runtime).unwrap();
+    fs::write(
+        runtime.join("effindom.v2.manifest.json"),
+        r#"{"runtime_set_hash":"test-runtime-set"}"#,
+    )
+    .unwrap();
+    fs::write(runtime.join("bridge.js"), "").unwrap();
+
+    let status = Command::new("node")
+        .arg("scripts/prepare-runtime.mjs")
+        .current_dir(&project)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let bootstrap = fs::read_to_string(project.join("public/effindom-runtime-config.js")).unwrap();
+    assert!(bootstrap.contains("window.__effindomFuiConfig="));
+    assert!(bootstrap.contains("test-runtime-set"));
 }
 
 fn assert_worker_is_native_only(manifest: &Path, dependency: &str) {

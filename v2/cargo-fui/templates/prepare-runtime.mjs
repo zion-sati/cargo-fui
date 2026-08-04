@@ -1,7 +1,7 @@
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { createFuiConfigBootstrapScript, parseFuiConfig } from '@effindomv2/runtime/fui-config';
 
-const fuiConfig = parseFuiConfig(JSON.parse(readFileSync('fui-config.json', 'utf8')));
+// cargo-fui validates this shared contract before invoking the asset build.
+const fuiConfig = JSON.parse(readFileSync('fui-config.json', 'utf8'));
 
 const manifest = JSON.parse(readFileSync('node_modules/@effindomv2/runtime/dist/effindom.v2.manifest.json', 'utf8'));
 if (typeof manifest.runtime_set_hash !== 'string' || manifest.runtime_set_hash.length === 0) {
@@ -21,7 +21,7 @@ const shell = readFileSync('index.html', 'utf8')
     ),
   );
 writeFileSync('public/index.html', shell);
-writeFileSync('public/effindom-runtime-config.js', `${createFuiConfigBootstrapScript(fuiConfig)}window.__effindomRuntime=${JSON.stringify({
+writeFileSync('public/effindom-runtime-config.js', `window.__effindomFuiConfig=${JSON.stringify(fuiConfig)};\nwindow.__effindomRuntime=${JSON.stringify({
   manifestUrls: [`https://runtimes.effindom.dev/v2/manifests/${manifest.runtime_set_hash}.json`, './runtime/effindom.v2.manifest.json'],
   expectedRuntimeSetHash: manifest.runtime_set_hash,
   buildMode: 'release',
