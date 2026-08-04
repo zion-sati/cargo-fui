@@ -2,8 +2,8 @@ use crate::{Error, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const FUI_RS_VERSION: &str = "=0.2.11";
-const RUNTIME_VERSION: &str = "0.2.9";
+const FUI_RS_VERSION: &str = "=0.2.12";
+const RUNTIME_VERSION: &str = "0.2.10";
 const ICON: &[u8] = include_bytes!("../templates/application-icon.png");
 const WORKER_SOURCE: &str = include_str!("../templates/worker.rs");
 
@@ -121,14 +121,7 @@ fn write_project(options: &NewProjectOptions) -> Result<()> {
             write_text(&options.destination.join(name), &contents)?;
         }
     }
-    write_text(
-        &options.destination.join("README.md"),
-        &readme(&options.project_name, options.template),
-    )?;
-    write_text(
-        &options.destination.join(".gitignore"),
-        "/target\n/node_modules\n/public\n/dist\n.DS_Store\n",
-    )?;
+    write_common_files(options, options.template)?;
     write_bytes(
         &options.destination.join("assets/application-icon.png"),
         ICON,
@@ -258,6 +251,10 @@ fn write_common_files(options: &NewProjectOptions, template: ProjectTemplate) ->
     write_text(
         &options.destination.join(".gitignore"),
         "/target\n/node_modules\n/public\n/dist\n.DS_Store\n",
+    )?;
+    write_text(
+        &options.destination.join("fui-config.json"),
+        "{\n  \"$schema\": \"https://effindom.dev/schemas/fui-config.schema.json\",\n  \"version\": 1,\n  \"application\": { \"pageZoom\": \"enabled\" },\n  \"web\": {\n    \"loading\": { \"delayMs\": 300, \"minimumVisibleMs\": 300 }\n  }\n}\n",
     )
 }
 

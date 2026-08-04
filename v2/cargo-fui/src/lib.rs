@@ -26,6 +26,11 @@ pub use effindom_native_packaging::{
     UniversalMacOsInputs, CANONICAL_ICON_SIZES, MINIMUM_PNG_ICON_SIZE, RECOMMENDED_PNG_ICON_SIZE,
 };
 pub use effindom_native_packaging::{
+    decode_fui_config, load_fui_config, FuiApplicationConfig, FuiConfig, FuiDevToolsDomMirrorMode,
+    FuiPageZoomMode, FuiWebConfig, FuiWebDevToolsConfig, FuiWebLoadingConfig, FUI_CONFIG_FILE,
+    FUI_CONFIG_SCHEMA, FUI_CONFIG_SCHEMA_VERSION,
+};
+pub use effindom_native_packaging::{
     decode_native_runtime_bundle_manifest, decode_native_runtime_release_manifest,
     encode_native_runtime_bundle_manifest, encode_native_runtime_release_manifest,
     extract_native_runtime_artifact, verify_native_runtime_directory, NativeRuntimeArchiveFormat,

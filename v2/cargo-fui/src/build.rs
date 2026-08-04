@@ -1,11 +1,12 @@
 use crate::{
     acquire_native_runtime, create_appimage, create_dmg, create_msix, encode_browser_favicon,
-    generate_native_worker_registry, load_icon_source, load_manifest, resolve_package_contract,
-    runtime_requirement_from_cargo_metadata, stage_native_bundle, AppImageInputs,
-    ApplicationTarget, BuildProfile, DmgInputs, Error, MsixInputs, NativeBuildOutput,
-    NativeLibraryOutput, NativeRuntimeAcquisition, NativeRuntimeTarget, NativeWorkerRegistryEntry,
-    OperatingSystem, OverwritePolicy, PackageContract, PackageRequest, Result, SigningMode,
-    UreqRuntimeDownloader, WorkerBundleManifest, DEFAULT_NATIVE_RUNTIME_RELEASE_BASE_URL,
+    generate_native_worker_registry, load_fui_config, load_icon_source, load_manifest,
+    resolve_package_contract, runtime_requirement_from_cargo_metadata, stage_native_bundle,
+    AppImageInputs, ApplicationTarget, BuildProfile, DmgInputs, Error, MsixInputs,
+    NativeBuildOutput, NativeLibraryOutput, NativeRuntimeAcquisition, NativeRuntimeTarget,
+    NativeWorkerRegistryEntry, OperatingSystem, OverwritePolicy, PackageContract, PackageRequest,
+    Result, SigningMode, UreqRuntimeDownloader, WorkerBundleManifest,
+    DEFAULT_NATIVE_RUNTIME_RELEASE_BASE_URL,
 };
 use serde::Deserialize;
 use std::env;
@@ -211,6 +212,7 @@ fn project_targets(options: &BuildOptions) -> Result<Vec<ApplicationTarget>> {
 }
 
 fn build_native(options: &BuildOptions) -> Result<BuildResult> {
+    load_fui_config(options.project_root.join("fui-config.json"))?;
     let target_triple = host_target()?;
     let fui_manifest = load_manifest(options.project_root.join("fui.toml"))?;
     let contract = resolve_package_contract(
@@ -322,6 +324,17 @@ fn build_native(options: &BuildOptions) -> Result<BuildResult> {
     fs::create_dir_all(&app_resources)
         .map_err(|source| io_error("create application resources", &app_resources, source))?;
     copy_application_assets(&contract, &app_resources)?;
+    fs::copy(
+        options.project_root.join("fui-config.json"),
+        app_resources.join("fui-config.json"),
+    )
+    .map_err(|source| {
+        io_error(
+            "copy FUI application configuration",
+            &options.project_root.join("fui-config.json"),
+            source,
+        )
+    })?;
     let runtime_resources = runtime.root.join("runtime/assets");
     let runtime_libraries = collect_libraries(&runtime.root.join("runtime/lib"))?;
     let package_parent = options
@@ -351,6 +364,7 @@ fn build_native(options: &BuildOptions) -> Result<BuildResult> {
 }
 
 fn build_web(options: &BuildOptions) -> Result<BuildResult> {
+    load_fui_config(options.project_root.join("fui-config.json"))?;
     let fui_manifest = load_manifest(options.project_root.join("fui.toml"))?;
     let web_manifest = options.project_root.join(
         fui_manifest

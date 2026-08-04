@@ -48,6 +48,7 @@ fn cargo_subcommand_parser_scaffolds_all_target_kinds() {
         )
         .unwrap();
         assert!(temp.0.join(target).join("Cargo.toml").is_file());
+        assert!(temp.0.join(target).join("fui-config.json").is_file());
         assert!(output.borrow()[0].starts_with("Created "));
     }
 }
@@ -67,6 +68,8 @@ fn templates_keep_native_node_free_and_universal_boundaries_explicit() {
         .contains("\n[workspace]\n"));
     assert_worker_is_native_only(&native.join("Cargo.toml"), "native_app_worker");
     let native_manifest = load_manifest(native.join("fui.toml")).unwrap();
+    let native_config = cargo_fui::load_fui_config(native.join("fui-config.json")).unwrap();
+    assert_eq!(native_config.version, 1);
     assert_eq!(native_manifest.workers[0].entries, ["sampleWorker"]);
     assert_eq!(
         native_manifest.application.targets,
