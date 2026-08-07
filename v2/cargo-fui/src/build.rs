@@ -943,14 +943,37 @@ fn serve_request(root: &Path, stream: &mut TcpStream) -> Result<()> {
     if relative.split('/').any(|component| component == "..") {
         return write_response(stream, 400, "text/plain", b"Bad request");
     }
+    match read_web_asset(root, relative)? {
+        Some((path, bytes)) => write_response(stream, 200, mime_type(&path), &bytes),
+        None => write_response(stream, 404, "text/plain", b"Not found"),
+    }
+}
+
+fn read_web_asset(root: &Path, relative: &str) -> Result<Option<(PathBuf, Vec<u8>)>> {
     let path = root.join(relative);
     match fs::read(&path) {
-        Ok(bytes) => write_response(stream, 200, mime_type(&path), &bytes),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            write_response(stream, 404, "text/plain", b"Not found")
+        Ok(bytes) => Ok(Some((path, bytes))),
+        Err(error)
+            if web_route_uses_app_shell(relative)
+                && matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::IsADirectory
+                ) =>
+        {
+            let shell = root.join("index.html");
+            let bytes = fs::read(&shell)
+                .map_err(|source| io_error("read development app shell", &shell, source))?;
+            Ok(Some((shell, bytes)))
         }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(source) => Err(io_error("read development asset", &path, source)),
     }
+}
+
+fn web_route_uses_app_shell(relative: &str) -> bool {
+    Path::new(relative.trim_end_matches('/'))
+        .extension()
+        .is_none()
 }
 
 fn write_response(
@@ -1084,8 +1107,8 @@ mod tests {
         );
     }
     use super::{
-        deployment_target_for, paths_identify_same_file, supplemental_system_libraries,
-        OperatingSystem,
+        deployment_target_for, paths_identify_same_file, read_web_asset,
+        supplemental_system_libraries, OperatingSystem,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -1115,6 +1138,34 @@ mod tests {
             &manifest,
             &PathBuf::from("missing-Cargo.toml")
         ));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn development_server_falls_back_for_routes_but_not_missing_assets() {
+        let root = std::env::temp_dir().join(format!(
+            "cargo-fui-web-routes-{}-{}",
+            std::process::id(),
+            NEXT_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("index.html"), b"app shell").unwrap();
+        fs::write(root.join("harness.js"), b"harness").unwrap();
+
+        let (route_path, route_body) = read_web_asset(&root, "text-fonts/")
+            .unwrap()
+            .expect("route should resolve to the app shell");
+        assert_eq!(route_path, root.join("index.html"));
+        assert_eq!(route_body, b"app shell");
+
+        let (asset_path, asset_body) = read_web_asset(&root, "harness.js")
+            .unwrap()
+            .expect("existing asset should resolve directly");
+        assert_eq!(asset_path, root.join("harness.js"));
+        assert_eq!(asset_body, b"harness");
+
+        assert!(read_web_asset(&root, "missing.png").unwrap().is_none());
 
         fs::remove_dir_all(root).unwrap();
     }
