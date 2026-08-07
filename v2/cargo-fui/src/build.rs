@@ -380,14 +380,14 @@ fn build_web(options: &BuildOptions) -> Result<BuildResult> {
         ));
     }
     if !options.project_root.join("node_modules").is_dir() {
-        let mut install = Command::new("npm");
+        let mut install = npm_command();
         install.current_dir(&options.project_root).arg("install");
         if options.offline {
             install.arg("--offline");
         }
         run_status(&mut install, "npm install")?;
     }
-    let mut assets = Command::new("npm");
+    let mut assets = npm_command();
     assets
         .current_dir(&options.project_root)
         .args(["run", "build:assets"]);
@@ -436,7 +436,7 @@ fn build_web(options: &BuildOptions) -> Result<BuildResult> {
         .join(format!("{crate_name}.wasm"));
     fs::copy(&wasm, options.project_root.join("public/app.wasm"))
         .map_err(|source| io_error("stage application WebAssembly", &wasm, source))?;
-    let mut harness = Command::new("npm");
+    let mut harness = npm_command();
     harness
         .current_dir(&options.project_root)
         .args(["run", "build:harness"]);
@@ -628,6 +628,10 @@ fn link_native(
             .arg("/EHsc")
             .arg("/MD")
             .arg(&launcher)
+            .arg(format!(
+                "/Fo{}",
+                windows_launcher_object_path(executable).display()
+            ))
             .arg(format!("/I{}", include.display()));
         for library in &libraries {
             command.arg(library);
@@ -887,6 +891,22 @@ fn run_status(command: &mut Command, label: &str) -> Result<()> {
     }
 }
 
+fn npm_command() -> Command {
+    Command::new(npm_program_for(cfg!(windows)))
+}
+
+fn npm_program_for(windows: bool) -> &'static str {
+    if windows {
+        "npm.cmd"
+    } else {
+        "npm"
+    }
+}
+
+fn windows_launcher_object_path(executable: &Path) -> PathBuf {
+    executable.with_extension("launcher.obj")
+}
+
 fn serve_web(root: &Path, output: impl Fn(&str)) -> Result<()> {
     let listener = TcpListener::bind(("127.0.0.1", 8080))
         .map_err(|source| io_error("bind development server", root, source))?;
@@ -1050,6 +1070,19 @@ fn io_error(operation: &'static str, path: &Path, source: std::io::Error) -> Err
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn selects_the_platform_npm_launcher() {
+        assert_eq!(super::npm_program_for(false), "npm");
+        assert_eq!(super::npm_program_for(true), "npm.cmd");
+    }
+
+    #[test]
+    fn keeps_windows_launcher_objects_out_of_the_runtime() {
+        assert_eq!(
+            super::windows_launcher_object_path(std::path::Path::new("raw/sample.exe")),
+            std::path::Path::new("raw/sample.launcher.obj")
+        );
+    }
     use super::{
         deployment_target_for, paths_identify_same_file, supplemental_system_libraries,
         OperatingSystem,

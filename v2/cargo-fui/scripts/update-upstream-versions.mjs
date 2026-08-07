@@ -7,22 +7,23 @@ import { fileURLToPath } from 'node:url';
 const packageDirectory = dirname(dirname(fileURLToPath(import.meta.url)));
 const scaffoldPath = join(packageDirectory, 'src', 'scaffold.rs');
 const versionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
-const response = await fetch('https://crates.io/api/v1/crates/fui-rs', {
+const response = process.env.FUI_RS_VERSION ? null : await fetch('https://crates.io/api/v1/crates/fui-rs', {
   headers: { 'User-Agent': 'cargo-fui-updater (https://github.com/zion-sati/cargo-fui)' },
 });
-if (!response.ok) throw new Error(`crates.io lookup failed: ${response.status} ${await response.text()}`);
-const fuiRsVersion = (await response.json()).crate.max_version;
+if (response && !response.ok) throw new Error(`crates.io lookup failed: ${response.status} ${await response.text()}`);
+const fuiRsVersion = process.env.FUI_RS_VERSION ?? (await response.json()).crate.max_version;
 if (!versionPattern.test(fuiRsVersion)) {
   throw new Error(`crates.io returned an invalid FUI-RS version: ${JSON.stringify(fuiRsVersion)}`);
 }
 
-const packagingResponse = await fetch('https://crates.io/api/v1/crates/effindom-native-packaging', {
+const packagingResponse = process.env.EFFINDOM_NATIVE_PACKAGING_VERSION ? null : await fetch('https://crates.io/api/v1/crates/effindom-native-packaging', {
   headers: { 'User-Agent': 'cargo-fui-updater (https://github.com/zion-sati/cargo-fui)' },
 });
-if (!packagingResponse.ok) {
+if (packagingResponse && !packagingResponse.ok) {
   throw new Error(`crates.io packaging lookup failed: ${packagingResponse.status} ${await packagingResponse.text()}`);
 }
-const packagingVersion = (await packagingResponse.json()).crate.max_version;
+const packagingVersion = process.env.EFFINDOM_NATIVE_PACKAGING_VERSION
+  ?? (await packagingResponse.json()).crate.max_version;
 if (!versionPattern.test(packagingVersion)) {
   throw new Error(`crates.io returned an invalid native-packaging version: ${JSON.stringify(packagingVersion)}`);
 }
@@ -39,7 +40,7 @@ const metadata = JSON.parse(execFileSync('cargo', [
 ], { encoding: 'utf8' }));
 rmSync(scratch, { recursive: true, force: true });
 const fui = metadata.packages.find((item) => item.name === 'fui-rs' && item.version === fuiRsVersion);
-const runtimeVersion = fui?.metadata?.effindom?.['runtime-version'];
+const runtimeVersion = process.env.EFFINDOM_RUNTIME_VERSION ?? fui?.metadata?.effindom?.['runtime-version'];
 if (!versionPattern.test(runtimeVersion ?? '')) {
   throw new Error(`fui-rs@${fuiRsVersion} does not declare valid package.metadata.effindom.runtime-version.`);
 }
