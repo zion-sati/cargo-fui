@@ -2,8 +2,8 @@ use crate::{Error, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const FUI_RS_VERSION: &str = "=0.2.15";
-const RUNTIME_VERSION: &str = "0.2.13";
+const FUI_RS_VERSION: &str = "=0.2.16";
+const RUNTIME_VERSION: &str = "0.2.14";
 const ICON: &[u8] = include_bytes!("../templates/application-icon.png");
 const WORKER_SOURCE: &str = include_str!("../templates/worker.rs");
 
