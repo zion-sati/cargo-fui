@@ -34,11 +34,15 @@ fn generated_rust_targets_are_format_clean_and_compile() {
         ProjectTemplate::Native,
         ProjectTemplate::Web,
         ProjectTemplate::Universal,
+        ProjectTemplate::WebRouted,
+        ProjectTemplate::UniversalRouted,
     ] {
         let name = match template {
             ProjectTemplate::Native => "native",
             ProjectTemplate::Web => "web",
             ProjectTemplate::Universal => "universal",
+            ProjectTemplate::WebRouted => "web-routed",
+            ProjectTemplate::UniversalRouted => "universal-routed",
         };
         let root = temp.0.join(name);
         create_project(&NewProjectOptions {
@@ -56,7 +60,10 @@ fn generated_rust_targets_are_format_clean_and_compile() {
                 .args(["fmt", "--check"]),
             "cargo fmt",
         );
-        if template == ProjectTemplate::Universal {
+        if matches!(
+            template,
+            ProjectTemplate::Universal | ProjectTemplate::UniversalRouted
+        ) {
             assert_success(
                 Command::new("cargo").current_dir(&root).args([
                     "check",
@@ -66,11 +73,13 @@ fn generated_rust_targets_are_format_clean_and_compile() {
                 "cargo check native adapter",
             );
             assert_success(
-                Command::new("cargo").current_dir(&root).args([
-                    "check",
-                    "--manifest-path",
-                    "crates/web/Cargo.toml",
-                ]),
+                Command::new("cargo").current_dir(&root).args(
+                    if template == ProjectTemplate::UniversalRouted {
+                        ["check", "--manifest-path", "crates/web/home/Cargo.toml"]
+                    } else {
+                        ["check", "--manifest-path", "crates/web/Cargo.toml"]
+                    },
+                ),
                 "cargo check web adapter",
             );
         } else {

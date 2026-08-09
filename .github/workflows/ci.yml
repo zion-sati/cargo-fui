@@ -155,6 +155,13 @@ jobs:
           node ../scripts/ci/smoke-generated-native.mjs .
           cargo fui package
           node ../scripts/ci/smoke-generated-package.mjs .
+      - name: Scaffold routed universal smoke app
+        run: cargo fui new universal-routed-smoke --target universal --template routed
+      - name: Package and launch routed universal native shell
+        working-directory: universal-routed-smoke
+        run: |
+          cargo fui package
+          node ../scripts/ci/smoke-generated-native.mjs .
 
   web-acceptance:
     needs: source-package
@@ -182,13 +189,19 @@ jobs:
           cargo fui new web-smoke --target web
           cd web-smoke
           cargo fui build --release
+          cd ..
+          cargo fui new web-routed-smoke --target web --template routed
+          cd web-routed-smoke
+          cargo fui build --release
       - name: Install browser smoke dependency
         working-directory: web-smoke
         run: |
           npm install --no-save @playwright/test@1.59.1
           npx playwright install --with-deps chromium
       - name: Launch generated browser app
-        run: node scripts/ci/smoke-generated-web.mjs web-smoke/public web-smoke/node_modules
+        run: |
+          node scripts/ci/smoke-generated-web.mjs web-smoke/public web-smoke/node_modules
+          node scripts/ci/smoke-generated-web.mjs web-routed-smoke/public web-smoke/node_modules
 
   universal-acceptance:
     needs: source-package
@@ -230,10 +243,17 @@ jobs:
           cd universal-smoke
           cargo fui build --release
           node ../scripts/ci/smoke-generated-native.mjs .
+          cd ..
+          cargo fui new universal-routed-smoke --target universal --template routed
+          cd universal-routed-smoke
+          cargo fui build --release
+          node ../scripts/ci/smoke-generated-native.mjs .
       - name: Install browser smoke dependency
         working-directory: universal-smoke
         run: |
           npm install --no-save @playwright/test@1.59.1
           npx playwright install --with-deps chromium
       - name: Launch generated browser app
-        run: node scripts/ci/smoke-generated-web.mjs universal-smoke/public universal-smoke/node_modules
+        run: |
+          node scripts/ci/smoke-generated-web.mjs universal-smoke/public universal-smoke/node_modules
+          node scripts/ci/smoke-generated-web.mjs universal-routed-smoke/public universal-smoke/node_modules

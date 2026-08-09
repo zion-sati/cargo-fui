@@ -22,6 +22,16 @@ pub struct FuiManifest {
     pub package: PackageSettings,
     #[serde(default)]
     pub workers: Vec<WorkerBundleManifest>,
+    #[serde(default)]
+    pub web_routes: Vec<WebRouteManifest>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct WebRouteManifest {
+    pub route_path: String,
+    pub wasm_artifact: PathBuf,
+    pub cargo_manifest: PathBuf,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -109,7 +119,49 @@ pub fn load_manifest(path: impl AsRef<Path>) -> Result<FuiManifest> {
         });
     }
     validate_workers(&manifest.workers)?;
+    validate_web_routes(&manifest.web_routes)?;
     Ok(manifest)
+}
+
+fn validate_web_routes(routes: &[WebRouteManifest]) -> Result<()> {
+    let mut paths = HashSet::new();
+    let mut artifacts = HashSet::new();
+    for route in routes {
+        if !route.route_path.starts_with('/')
+            || !route.route_path.ends_with('/')
+            || route.route_path.contains("..")
+            || !paths.insert(route.route_path.as_str())
+        {
+            return Err(Error::Cli(format!(
+                "invalid or duplicate web route path {:?}",
+                route.route_path
+            )));
+        }
+        validate_worker_path(&route.wasm_artifact, "wasm-artifact", &route.route_path)?;
+        validate_worker_path(&route.cargo_manifest, "cargo-manifest", &route.route_path)?;
+        if route
+            .wasm_artifact
+            .parent()
+            .is_some_and(|parent| !parent.as_os_str().is_empty())
+            || route
+                .wasm_artifact
+                .extension()
+                .and_then(|value| value.to_str())
+                != Some("wasm")
+            || route
+                .wasm_artifact
+                .file_name()
+                .and_then(|value| value.to_str())
+                == Some("app.wasm")
+            || !artifacts.insert(route.wasm_artifact.as_path())
+        {
+            return Err(Error::Cli(format!(
+                "invalid, duplicate, or reserved web route artifact {:?}",
+                route.wasm_artifact
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn validate_workers(workers: &[WorkerBundleManifest]) -> Result<()> {

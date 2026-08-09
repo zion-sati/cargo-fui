@@ -1,0 +1,6 @@
+{
+  "routes": [
+    { "key": "home", "routePath": "/", "wasmPath": "/home.wasm", "title": "Home" },
+    { "key": "settings", "routePath": "/settings/", "wasmPath": "/settings.wasm", "title": "Settings" }
+  ]
+}

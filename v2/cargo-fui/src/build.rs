@@ -400,12 +400,43 @@ fn build_web(options: &BuildOptions) -> Result<BuildResult> {
             .map_err(|source| io_error("write browser favicon", &destination, source))?;
     }
     build_web_workers(options, &fui_manifest.workers)?;
+    if fui_manifest.web_routes.is_empty() {
+        build_web_module(options, &web_manifest, Path::new("app.wasm"))?;
+    } else {
+        let stale_app = options.project_root.join("public/app.wasm");
+        if stale_app.exists() {
+            fs::remove_file(&stale_app).map_err(|source| {
+                io_error("remove stale monolithic web module", &stale_app, source)
+            })?;
+        }
+        for route in &fui_manifest.web_routes {
+            build_web_module(
+                options,
+                &options.project_root.join(&route.cargo_manifest),
+                &route.wasm_artifact,
+            )?;
+        }
+        stage_web_route_entrypoints(options, &fui_manifest.web_routes)?;
+    }
+    let mut harness = npm_command();
+    harness
+        .current_dir(&options.project_root)
+        .args(["run", "build:harness"]);
+    run_status(&mut harness, "npm run build:harness")?;
+    Ok(BuildResult {
+        target: ApplicationTarget::Web,
+        path: options.project_root.join("public"),
+        contract: None,
+    })
+}
+
+fn build_web_module(options: &BuildOptions, web_manifest: &Path, artifact: &Path) -> Result<()> {
     let mut cargo = Command::new("cargo");
     cargo
         .current_dir(&options.project_root)
         .arg("build")
         .arg("--manifest-path")
-        .arg(&web_manifest)
+        .arg(web_manifest)
         .args(["--target", "wasm32-unknown-unknown"]);
     if options.profile == BuildProfile::Release {
         cargo.arg("--release");
@@ -416,13 +447,13 @@ fn build_web(options: &BuildOptions) -> Result<BuildResult> {
     run_status(&mut cargo, "cargo build for wasm32")?;
     let metadata_bytes = cargo_output_with_manifest(
         &options.project_root,
-        &web_manifest,
+        web_manifest,
         ["metadata", "--format-version", "1", "--no-deps"],
         "cargo metadata",
     )?;
     let metadata: CargoMetadata =
         serde_json::from_slice(&metadata_bytes).map_err(Error::SerializeLinkMetadata)?;
-    let package = application_package(&metadata, &web_manifest)?;
+    let package = application_package(&metadata, web_manifest)?;
     let crate_name = package
         .targets
         .iter()
@@ -434,18 +465,33 @@ fn build_web(options: &BuildOptions) -> Result<BuildResult> {
         .join("wasm32-unknown-unknown")
         .join(profile_name(options.profile))
         .join(format!("{crate_name}.wasm"));
-    fs::copy(&wasm, options.project_root.join("public/app.wasm"))
+    fs::copy(&wasm, options.project_root.join("public").join(artifact))
         .map_err(|source| io_error("stage application WebAssembly", &wasm, source))?;
-    let mut harness = npm_command();
-    harness
-        .current_dir(&options.project_root)
-        .args(["run", "build:harness"]);
-    run_status(&mut harness, "npm run build:harness")?;
-    Ok(BuildResult {
-        target: ApplicationTarget::Web,
-        path: options.project_root.join("public"),
-        contract: None,
-    })
+    Ok(())
+}
+
+fn stage_web_route_entrypoints(
+    options: &BuildOptions,
+    routes: &[crate::WebRouteManifest],
+) -> Result<()> {
+    let source = options.project_root.join("index.html");
+    let html =
+        fs::read(&source).map_err(|error| io_error("read web route shell", &source, error))?;
+    let public = options.project_root.join("public");
+    fs::write(public.join("index.html"), &html)
+        .map_err(|error| io_error("stage root web route shell", &public, error))?;
+    for route in routes {
+        if route.route_path == "/" {
+            continue;
+        }
+        let directory = public.join(route.route_path.trim_matches('/'));
+        fs::create_dir_all(&directory)
+            .map_err(|error| io_error("create web route directory", &directory, error))?;
+        let destination = directory.join("index.html");
+        fs::write(&destination, &html)
+            .map_err(|error| io_error("stage web route shell", &destination, error))?;
+    }
+    Ok(())
 }
 
 fn build_web_workers(options: &BuildOptions, workers: &[WorkerBundleManifest]) -> Result<()> {

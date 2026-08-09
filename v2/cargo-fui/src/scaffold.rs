@@ -12,6 +12,8 @@ pub enum ProjectTemplate {
     Native,
     Web,
     Universal,
+    WebRouted,
+    UniversalRouted,
 }
 
 impl ProjectTemplate {
@@ -26,12 +28,36 @@ impl ProjectTemplate {
         }
     }
 
+    pub fn parse_with_layout(target: &str, layout: &str) -> Result<Self> {
+        match (target, layout) {
+            ("native", "default") => Ok(Self::Native),
+            ("web", "default") => Ok(Self::Web),
+            ("universal", "default") => Ok(Self::Universal),
+            ("web", "routed") => Ok(Self::WebRouted),
+            ("universal", "routed") => Ok(Self::UniversalRouted),
+            ("native", "routed") => Err(Error::Cli(
+                "the routed template requires a web or universal target".into(),
+            )),
+            (_, "default" | "routed") => Self::parse(target),
+            (_, _) => Err(Error::Cli(format!(
+                "unsupported project template {layout:?}; use default or routed"
+            ))),
+        }
+    }
+
     fn includes_native(self) -> bool {
-        matches!(self, Self::Native | Self::Universal)
+        matches!(self, Self::Native | Self::Universal | Self::UniversalRouted)
     }
 
     fn includes_web(self) -> bool {
-        matches!(self, Self::Web | Self::Universal)
+        matches!(
+            self,
+            Self::Web | Self::Universal | Self::WebRouted | Self::UniversalRouted
+        )
+    }
+
+    fn is_routed(self) -> bool {
+        matches!(self, Self::WebRouted | Self::UniversalRouted)
     }
 }
 
@@ -63,6 +89,9 @@ pub fn create_project(options: &NewProjectOptions) -> Result<()> {
 fn write_project(options: &NewProjectOptions) -> Result<()> {
     let package = package_name(&options.project_name);
     let crate_name = package.replace('-', "_");
+    if options.template.is_routed() {
+        return write_routed_project(options, &package, &crate_name);
+    }
     if options.template == ProjectTemplate::Universal {
         return write_universal_project(options, &package, &crate_name);
     }
@@ -121,6 +150,132 @@ fn write_project(options: &NewProjectOptions) -> Result<()> {
             write_text(&options.destination.join(name), &contents)?;
         }
     }
+    write_common_files(options, options.template)?;
+    write_bytes(
+        &options.destination.join("assets/application-icon.png"),
+        ICON,
+    )
+}
+
+fn write_routed_project(
+    options: &NewProjectOptions,
+    package: &str,
+    crate_name: &str,
+) -> Result<()> {
+    let universal = options.template == ProjectTemplate::UniversalRouted;
+    let members = if universal {
+        "[\"crates/shared\", \"crates/routes/*\", \"crates/web/*\", \"crates/native\", \"crates/worker\"]"
+    } else {
+        "[\"crates/shared\", \"crates/routes/*\", \"crates/web/*\", \"crates/worker\"]"
+    };
+    write_text(
+        &options.destination.join("Cargo.toml"),
+        &format!(
+            "[workspace]\nmembers = {members}\nresolver = \"2\"\n\n[workspace.dependencies]\nfui = {{ package = \"fui-rs\", version = \"{FUI_RS_VERSION}\" }}\n\n[profile.dev]\ndebug = 0\npanic = \"abort\"\n\n[profile.release]\nopt-level = 3\nlto = true\ncodegen-units = 1\npanic = \"abort\"\n"
+        ),
+    )?;
+    let native_manifest = if universal {
+        "cargo-manifest = \"crates/native/Cargo.toml\"\n"
+    } else {
+        ""
+    };
+    let targets = if universal {
+        "[\"native\", \"web\"]"
+    } else {
+        "[\"web\"]"
+    };
+    write_text(
+        &options.destination.join("fui.toml"),
+        &format!(
+            "schema-version = 1\n\n[application]\nidentifier = \"dev.example.{package}\"\ncaption = \"{}\"\nicon = \"assets/application-icon.png\"\n{native_manifest}targets = {targets}\n\n[[web-routes]]\nroute-path = \"/\"\nwasm-artifact = \"home.wasm\"\ncargo-manifest = \"crates/web/home/Cargo.toml\"\n\n[[web-routes]]\nroute-path = \"/settings/\"\nwasm-artifact = \"settings.wasm\"\ncargo-manifest = \"crates/web/settings/Cargo.toml\"\n\n[assets]\nsources = [\"assets\"]\n\n[[workers]]\nid = \"sample\"\nweb-artifact = \"./workers.wasm\"\nnative-cargo-manifest = \"crates/worker/Cargo.toml\"\nentries = [\"sampleWorker\"]\n\n[package.macos]\nminimum-version = \"13.0\"\n\n[package.windows]\npublisher = \"CN=Development\"\n\n[package.linux]\ncategories = [\"Utility\"]\n",
+            options.project_name
+        ),
+    )?;
+    write_text(
+        &options.destination.join("crates/shared/Cargo.toml"),
+        &format!(
+            "[package]\nname = \"{package}-shared\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nfui = {{ workspace = true }}\n"
+        ),
+    )?;
+    write_text(
+        &options.destination.join("crates/shared/src/lib.rs"),
+        include_str!("../templates/routed-shared.rs"),
+    )?;
+    for (key, title) in [("home", "Home"), ("settings", "Settings")] {
+        let route_crate = format!("{crate_name}_{key}");
+        write_text(
+            &options
+                .destination
+                .join(format!("crates/routes/{key}/Cargo.toml")),
+            &format!(
+                "[package]\nname = \"{package}-{key}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"{route_crate}\"\ncrate-type = [\"rlib\"]\n\n[dependencies]\nfui = {{ workspace = true }}\n"
+            ),
+        )?;
+        write_text(
+            &options
+                .destination
+                .join(format!("crates/routes/{key}/src/lib.rs")),
+            &include_str!("../templates/routed-page.rs")
+                .replace("__PAGE_TYPE__", &format!("{title}Page"))
+                .replace("__PAGE_TITLE__", title),
+        )?;
+        write_text(
+            &options
+                .destination
+                .join(format!("crates/web/{key}/Cargo.toml")),
+            &format!(
+                "[package]\nname = \"{package}-web-{key}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"{crate_name}_web_{key}\"\ncrate-type = [\"cdylib\"]\n\n[dependencies]\nfui = {{ workspace = true }}\n{crate_name}_{key} = {{ package = \"{package}-{key}\", path = \"../../routes/{key}\" }}\n{crate_name}_shared = {{ package = \"{package}-shared\", path = \"../../shared\" }}\n"
+            ),
+        )?;
+        write_text(
+            &options
+                .destination
+                .join(format!("crates/web/{key}/src/lib.rs")),
+            &include_str!("../templates/routed-web-adapter.rs")
+                .replace("__CRATE_NAME__", crate_name)
+                .replace("__ROUTE_CRATE__", &route_crate)
+                .replace("__PAGE_KEY__", key)
+                .replace("__PAGE_TYPE__", &format!("{title}Page"))
+                .replace("__PAGE_TITLE__", title)
+                .replace("__PROJECT_NAME__", &options.project_name)
+                .replace(
+                    "__HOME_ACTIVE__",
+                    if key == "home" { "true" } else { "false" },
+                ),
+        )?;
+    }
+    if universal {
+        write_text(
+            &options.destination.join("crates/native/Cargo.toml"),
+            &format!(
+                "[package]\nname = \"{package}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"{crate_name}\"\ncrate-type = [\"staticlib\"]\n\n[dependencies]\nfui = {{ workspace = true, features = [\"native-runtime\"] }}\n{crate_name}_home = {{ package = \"{package}-home\", path = \"../routes/home\" }}\n{crate_name}_settings = {{ package = \"{package}-settings\", path = \"../routes/settings\" }}\n{crate_name}_worker = {{ package = \"{package}-worker\", path = \"../worker\" }}\n"
+            ),
+        )?;
+        write_text(
+            &options.destination.join("crates/native/src/lib.rs"),
+            &include_str!("../templates/routed-native-adapter.rs")
+                .replace("__CRATE_NAME__", crate_name)
+                .replace("__PROJECT_NAME__", &options.project_name),
+        )?;
+    }
+    write_worker_crate(&options.destination, "crates/worker", package)?;
+    write_web_files(options, package)?;
+    let routed_index = include_str!("../templates/index.html")
+        .replace("__CAPTION__", &options.project_name)
+        .replace("\"./", "\"/")
+        .replace(
+            "data-effindom-canvas-size-source",
+            "id=\"fui-routes\" data-effindom-canvas-size-source",
+        );
+    write_text(&options.destination.join("index.html"), &routed_index)?;
+    write_text(
+        &options.destination.join("harness.ts"),
+        include_str!("../templates/routed-harness.ts"),
+    )?;
+    write_text(
+        &options.destination.join("routes.json"),
+        include_str!("../templates/routed-routes.json"),
+    )?;
     write_common_files(options, options.template)?;
     write_bytes(
         &options.destination.join("assets/application-icon.png"),
@@ -285,8 +440,8 @@ fn cargo_manifest(package: &str, crate_name: &str, template: ProjectTemplate) ->
 fn fui_manifest(package: &str, template: ProjectTemplate) -> String {
     let targets = match template {
         ProjectTemplate::Native => "[\"native\"]",
-        ProjectTemplate::Web => "[\"web\"]",
-        ProjectTemplate::Universal => "[\"native\", \"web\"]",
+        ProjectTemplate::Web | ProjectTemplate::WebRouted => "[\"web\"]",
+        ProjectTemplate::Universal | ProjectTemplate::UniversalRouted => "[\"native\", \"web\"]",
     };
     format!(
         "schema-version = 1\n\n[application]\nidentifier = \"dev.example.{package}\"\ncaption = \"{package}\"\nicon = \"assets/application-icon.png\"\ntargets = {targets}\n\n[assets]\nsources = [\"assets\"]\n\n[[workers]]\nid = \"sample\"\nweb-artifact = \"./workers.wasm\"\nnative-cargo-manifest = \"worker/Cargo.toml\"\nentries = [\"sampleWorker\"]\n\n[package.macos]\nminimum-version = \"13.0\"\n\n[package.windows]\npublisher = \"CN=Development\"\n\n[package.linux]\ncategories = [\"Utility\"]\n"
@@ -333,13 +488,13 @@ fn readme(name: &str, template: ProjectTemplate) -> String {
             "```bash\n# Build and run the native app in the default debug profile.\ncargo fui dev\n\n# Produce an optimized native build.\ncargo fui build --release\n\n# Produce the platform package or release archive.\ncargo fui package\n```",
             "- `src/lib.rs` owns the retained UI and application lifecycle.\n- `worker` contains the shared Worker implementation used by native and web builds.\n- `src/services/native.rs` is the boundary for native platform services.\n- `fui.toml` defines application metadata, workers, assets, targets, and packaging settings.\n- `assets/application-icon.png` is the canonical application icon.",
         ),
-        ProjectTemplate::Web => (
+        ProjectTemplate::Web | ProjectTemplate::WebRouted => (
             "A browser FUI-RS application compiled to WebAssembly.",
             "- The stable Rust toolchain from [rustup](https://rustup.rs/)\n- `cargo-fui`, installed with `cargo install --locked cargo-fui`\n- A current Node.js LTS release and npm",
             "```bash\n# Build the app and serve it locally with rebuild-on-refresh development behavior.\ncargo fui dev\n\n# Produce an optimized browser build in public/.\ncargo fui build --release\n```\n\n`cargo fui package` is intentionally unavailable for web-only projects. Deploy the generated `public/` directory with your normal static-site tooling.",
             "- `src/lib.rs` owns the retained UI and application lifecycle.\n- `worker` contains the Worker implementation compiled to WebAssembly.\n- `src/services/web.rs` is the boundary for browser services.\n- `harness.ts` starts the EffinDOM browser harness.\n- `fui.toml` defines application metadata, workers, assets, and targets.\n- `assets/application-icon.png` is the canonical application icon.",
         ),
-        ProjectTemplate::Universal => (
+        ProjectTemplate::Universal | ProjectTemplate::UniversalRouted => (
             "A universal FUI-RS application with shared retained UI and explicit native and browser adapters. Native rendering does not use Electron or a WebView.",
             "- The stable Rust toolchain from [rustup](https://rustup.rs/)\n- `cargo-fui`, installed with `cargo install --locked cargo-fui`\n- The platform prerequisites documented by [`cargo-fui`](https://github.com/zion-sati/cargo-fui#platform-prerequisites)\n- A current Node.js LTS release and npm for the WebAssembly target",
             "```bash\n# Build and serve the browser adapter during development.\ncargo fui dev\n\n# Produce optimized native and browser builds.\ncargo fui build --release\n\n# Produce the native platform package or release archive.\ncargo fui package\n```",

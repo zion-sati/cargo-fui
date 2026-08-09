@@ -65,9 +65,9 @@ pub fn run_cli(
     }
 }
 
-const USAGE: &str = "FUI-RS project, development, build, and packaging tooling.\n\nUsage:\n  cargo fui new <path> [--target native|web|universal]\n  cargo fui dev [--release] [--offline]\n  cargo fui build [--release] [--offline]\n  cargo fui package [--debug] [--offline]\n\nRun `cargo fui help <command>` for command-specific help.";
+const USAGE: &str = "FUI-RS project, development, build, and packaging tooling.\n\nUsage:\n  cargo fui new <path> [--target native|web|universal] [--template default|routed]\n  cargo fui dev [--release] [--offline]\n  cargo fui build [--release] [--offline]\n  cargo fui package [--debug] [--offline]\n\nRun `cargo fui help <command>` for command-specific help.";
 
-const NEW_USAGE: &str = "Create a FUI-RS application.\n\nUsage:\n  cargo fui new <path> [--target native|web|universal]\n\nTargets:\n  native      Native macOS, Windows, or Linux application; no Node.js required.\n  web         Browser/WebAssembly application; requires Node.js.\n  universal   Shared retained UI with explicit native and web adapters.\n\nThe default target is native.";
+const NEW_USAGE: &str = "Create a FUI-RS application.\n\nUsage:\n  cargo fui new <path> [--target native|web|universal] [--template default|routed]\n\nTargets:\n  native      Native macOS, Windows, or Linux application; no Node.js required.\n  web         Browser/WebAssembly application; requires Node.js.\n  universal   Shared retained UI with explicit native and web adapters.\n\nTemplates:\n  default     One application module per target.\n  routed      Independent browser route WASMs with shared retained pages; web or universal only.\n\nThe default target is native and the default template is default.";
 
 const DEV_USAGE: &str = "Build and run or serve the current FUI-RS project.\n\nUsage:\n  cargo fui dev [--release] [--offline]\n\nOptions:\n  --release   Use optimized release output instead of the default debug build.\n  --offline   Require cached dependencies and EffinDOM runtime inputs.";
 
@@ -120,7 +120,11 @@ fn new_command(cwd: &Path, arguments: &[String], io: &CliIo<'_>) -> Result<()> {
         .filter(|value| !value.starts_with('-'))
         .ok_or_else(usage)?;
     let target = option_value(arguments, "--target")?.unwrap_or("native");
-    reject_options(arguments, &[path.as_str(), "--target", target])?;
+    let template = option_value(arguments, "--template")?.unwrap_or("default");
+    reject_options(
+        arguments,
+        &[path.as_str(), "--target", target, "--template", template],
+    )?;
     let destination = cwd.join(path);
     let project_name = destination
         .file_name()
@@ -130,7 +134,7 @@ fn new_command(cwd: &Path, arguments: &[String], io: &CliIo<'_>) -> Result<()> {
     create_project(&NewProjectOptions {
         destination: destination.clone(),
         project_name,
-        template: ProjectTemplate::parse(target)?,
+        template: ProjectTemplate::parse_with_layout(target, template)?,
     })?;
     io.print(&format!("Created {}", destination.display()));
     io.print(&format!("Run: cd {path} && cargo fui dev"));

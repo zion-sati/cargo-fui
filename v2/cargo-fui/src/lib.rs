@@ -44,8 +44,8 @@ pub use effindom_native_packaging::{
 pub use error::{Error, Result};
 pub use manifest::{
     load_manifest, ApplicationManifest, ApplicationTarget, AssetsManifest, FuiManifest,
-    LinuxPackageSettings, MacOsPackageSettings, PackageSettings, WindowsPackageSettings,
-    WorkerBundleManifest, FUI_MANIFEST_SCHEMA_VERSION,
+    LinuxPackageSettings, MacOsPackageSettings, PackageSettings, WebRouteManifest,
+    WindowsPackageSettings, WorkerBundleManifest, FUI_MANIFEST_SCHEMA_VERSION,
 };
 pub use native_bundle::{
     stage_native_bundle, NativeBuildOutput, NativeLibraryOutput, StagedNativeBundle,

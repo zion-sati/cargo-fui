@@ -55,6 +55,97 @@ fn cargo_subcommand_parser_scaffolds_all_target_kinds() {
 }
 
 #[test]
+fn cargo_subcommand_parser_scaffolds_routed_web_and_universal_projects() {
+    let temp = TempDir::new();
+    for target in ["web", "universal"] {
+        let io = CliIo::new(|_| {});
+        run_cli(
+            [
+                "fui".to_string(),
+                "new".to_string(),
+                format!("{target}-routed"),
+                "--target".to_string(),
+                target.to_string(),
+                "--template".to_string(),
+                "routed".to_string(),
+            ],
+            Ok(temp.0.clone()),
+            &io,
+        )
+        .unwrap();
+        let root = temp.0.join(format!("{target}-routed"));
+        assert!(root.join("routes.json").is_file());
+        assert!(root.join("crates/web/home/Cargo.toml").is_file());
+        assert!(root.join("crates/web/settings/Cargo.toml").is_file());
+        assert!(!root.join("public/app.wasm").exists());
+        assert_eq!(
+            load_manifest(root.join("fui.toml"))
+                .unwrap()
+                .web_routes
+                .len(),
+            2
+        );
+        assert_eq!(
+            root.join("crates/native/Cargo.toml").is_file(),
+            target == "universal"
+        );
+    }
+
+    let io = CliIo::new(|_| {});
+    let error = run_cli(
+        [
+            "fui".to_string(),
+            "new".to_string(),
+            "invalid".to_string(),
+            "--target".to_string(),
+            "native".to_string(),
+            "--template".to_string(),
+            "routed".to_string(),
+        ],
+        Ok(temp.0.clone()),
+        &io,
+    )
+    .unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("requires a web or universal target"));
+}
+
+#[test]
+fn routed_contract_matches_create_fui_rs_app_when_both_sources_are_present() {
+    let canonical = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../create-fui-rs-app/templates/routed/routes.json");
+    if !canonical.is_file() {
+        return;
+    }
+    let temp = TempDir::new();
+    let generated = temp.0.join("routed-parity");
+    create(&generated, ProjectTemplate::WebRouted);
+    let canonical: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(canonical).unwrap()).unwrap();
+    let generated: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(generated.join("routes.json")).unwrap()).unwrap();
+    let topology = |manifest: &serde_json::Value| {
+        manifest["routes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|route| {
+                (
+                    route["key"].as_str().unwrap().to_owned(),
+                    route["routePath"].as_str().unwrap().to_owned(),
+                    route["wasmPath"].as_str().unwrap().to_owned(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(topology(&generated), topology(&canonical));
+    assert!(topology(&generated)
+        .iter()
+        .all(|(_, _, wasm)| wasm != "/app.wasm"));
+}
+
+#[test]
 fn templates_keep_native_node_free_and_universal_boundaries_explicit() {
     let temp = TempDir::new();
     let native = temp.0.join("native-app");
