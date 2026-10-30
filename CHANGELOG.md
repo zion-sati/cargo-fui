@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.12 - 2026-10-30
+
+- Updated verified upstream dependency pins.
+
 ## 0.1.11 - 2026-08-09
 
 - Added first-class routed web and universal scaffolds to cargo-fui.
