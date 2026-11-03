@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1 - 2026-11-03
+
+- Updated verified upstream dependency pins.
+
 ## 0.4.0 - 2026-11-03
 
 - cargo fui build and cargo fui dev run the project's generate:host npm script, when package.json defines one, before compiling any WebAssembly, so host-service and host-event bindings follow their contracts.
