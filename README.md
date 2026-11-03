@@ -90,6 +90,14 @@ cargo fui package --debug       # explicit development package
 cargo fui build --offline       # use only cached dependencies and runtime
 ```
 
+A release web build optimizes each route and Worker module for size with Binaryen's `wasm-opt -Oz` and strips it.
+Projects pin Binaryen in `package.json`; `cargo fui new` adds it, and an older project adds it with
+`npm install --save-dev --save-exact binaryen@132.0.0`. Leave `strip` out of `[profile.release]`: `wasm-opt` reads
+each module's feature list, then strips it.
+
+Before compiling any WebAssembly, web builds run the project's `generate:host` npm script when `package.json` defines
+one, so host-service and host-event bindings follow their contracts; the FUI-RS host services guide shows the script.
+
 Run `cargo fui help` or `cargo fui help <command>` for command-specific help.
 
 ## Current status

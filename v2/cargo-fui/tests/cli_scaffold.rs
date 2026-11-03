@@ -55,6 +55,52 @@ fn cargo_subcommand_parser_scaffolds_all_target_kinds() {
 }
 
 #[test]
+fn projects_with_a_web_target_build_their_release_for_size() {
+    let temp = TempDir::new();
+    for (name, target, template) in [
+        ("native", "native", "default"),
+        ("web", "web", "default"),
+        ("universal", "universal", "default"),
+        ("web-routed", "web", "routed"),
+        ("universal-routed", "universal", "routed"),
+    ] {
+        let io = CliIo::new(|_| {});
+        run_cli(
+            [
+                "fui".to_string(),
+                "new".to_string(),
+                name.to_string(),
+                "--target".to_string(),
+                target.to_string(),
+                "--template".to_string(),
+                template.to_string(),
+            ],
+            Ok(temp.0.clone()),
+            &io,
+        )
+        .unwrap();
+        let manifest = fs::read_to_string(temp.0.join(name).join("Cargo.toml")).unwrap();
+        let release = manifest
+            .parse::<toml::Table>()
+            .unwrap_or_else(|error| panic!("{name} Cargo.toml: {error}"))["profile"]["release"]
+            .clone();
+        if target == "native" {
+            assert_eq!(release["opt-level"].as_integer(), Some(3), "{name}");
+        } else {
+            assert_eq!(release["opt-level"].as_str(), Some("z"), "{name}");
+            let package: serde_json::Value = serde_json::from_str(
+                &fs::read_to_string(temp.0.join(name).join("package.json")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(package["devDependencies"]["binaryen"], "132.0.0", "{name}");
+        }
+        // Release web builds strip modules after wasm-opt reads their feature list.
+        assert!(release.get("strip").is_none(), "{name}");
+        assert_eq!(release["lto"].as_bool(), Some(true), "{name}");
+    }
+}
+
+#[test]
 fn cargo_subcommand_parser_scaffolds_routed_web_and_universal_projects() {
     let temp = TempDir::new();
     for target in ["web", "universal"] {

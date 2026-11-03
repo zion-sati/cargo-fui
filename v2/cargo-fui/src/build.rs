@@ -1,3 +1,4 @@
+use crate::scaffold::BINARYEN_VERSION;
 use crate::{
     acquire_native_runtime, create_appimage, create_dmg, create_msix, encode_browser_favicon,
     generate_native_worker_registry, load_fui_config, load_icon_source, load_manifest,
@@ -275,7 +276,10 @@ fn build_native(options: &BuildOptions) -> Result<BuildResult> {
         .env("FUI_NATIVE_WORKER_REGISTRY_RS", &worker_registry)
         .env(
             "RUSTFLAGS",
-            native_worker_rustflags(env::var("RUSTFLAGS").ok().as_deref()),
+            native_worker_rustflags(
+                env::var("RUSTFLAGS").ok().as_deref(),
+                home_remap_flag().as_deref(),
+            ),
         );
     if let Some(version) = macos_minimum_version {
         cargo.env("MACOSX_DEPLOYMENT_TARGET", version);
@@ -387,6 +391,13 @@ fn build_web(options: &BuildOptions) -> Result<BuildResult> {
         }
         run_status(&mut install, "npm install")?;
     }
+    if package_defines_script(&package_json, "generate:host")? {
+        let mut generate = npm_command();
+        generate
+            .current_dir(&options.project_root)
+            .args(["run", "generate:host"]);
+        run_status(&mut generate, "npm run generate:host")?;
+    }
     let mut assets = npm_command();
     assets
         .current_dir(&options.project_root)
@@ -437,7 +448,8 @@ fn build_web_module(options: &BuildOptions, web_manifest: &Path, artifact: &Path
         .arg("build")
         .arg("--manifest-path")
         .arg(web_manifest)
-        .args(["--target", "wasm32-unknown-unknown"]);
+        .args(["--target", "wasm32-unknown-unknown"])
+        .args(home_remap_config(home_remap_flag().as_deref()));
     if options.profile == BuildProfile::Release {
         cargo.arg("--release");
     }
@@ -465,21 +477,115 @@ fn build_web_module(options: &BuildOptions, web_manifest: &Path, artifact: &Path
         .join("wasm32-unknown-unknown")
         .join(profile_name(options.profile))
         .join(format!("{crate_name}.wasm"));
-    fs::copy(&wasm, options.project_root.join("public").join(artifact))
+    let destination = options.project_root.join("public").join(artifact);
+    fs::copy(&wasm, &destination)
         .map_err(|source| io_error("stage application WebAssembly", &wasm, source))?;
-    Ok(())
+    optimize_release_web_module(options, &destination)
 }
 
+/// The size passes a release web module gets from Binaryen's `wasm-opt`, after the input path. The strips drop the
+/// function names, toolchain record and feature list that the browser never reads.
+const WASM_OPT_ARGUMENTS: [&str; 4] = [
+    "-Oz",
+    "--strip-debug",
+    "--strip-producers",
+    "--strip-target-features",
+];
+
+/// A browser downloads a route's WebAssembly before the route can start, so a release build runs every staged module
+/// through the Binaryen the project pins in package.json, the optimizer the other FUI toolchains use.
+fn optimize_release_web_module(options: &BuildOptions, module: &Path) -> Result<()> {
+    if options.profile != BuildProfile::Release {
+        return Ok(());
+    }
+    let wasm_opt = options
+        .project_root
+        .join("node_modules/binaryen/bin/wasm-opt");
+    if !wasm_opt.is_file() {
+        return Err(Error::Cli(format!(
+            "release web builds optimize WebAssembly with Binaryen; add it with `npm install --save-dev --save-exact binaryen@{BINARYEN_VERSION}`"
+        )));
+    }
+    let bytes = fs::read(module).map_err(|source| io_error("read WebAssembly", module, source))?;
+    if !has_custom_section(&bytes, "target_features") {
+        return Err(Error::Cli(format!(
+            "{} has no target_features section, so wasm-opt cannot tell which WebAssembly features it uses; remove `strip` from [profile.release], since release web builds strip modules after optimizing them",
+            module.display()
+        )));
+    }
+    let mut command = Command::new("node");
+    command
+        .current_dir(&options.project_root)
+        .arg(&wasm_opt)
+        .arg(module)
+        .args(WASM_OPT_ARGUMENTS)
+        .arg("-o")
+        .arg(module);
+    run_status(&mut command, "wasm-opt")
+}
+
+/// Whether package.json defines the named npm script. A project with host services defines `generate:host`, which
+/// regenerates their Rust bindings before any module that uses them is compiled.
+fn package_defines_script(package_json: &Path, name: &str) -> Result<bool> {
+    let source = fs::read(package_json)
+        .map_err(|source| io_error("read package.json", package_json, source))?;
+    let package: serde_json::Value = serde_json::from_slice(&source).map_err(|error| {
+        Error::Cli(format!(
+            "{} is not valid JSON: {error}",
+            package_json.display()
+        ))
+    })?;
+    Ok(package
+        .get("scripts")
+        .and_then(|scripts| scripts.get(name))
+        .is_some_and(serde_json::Value::is_string))
+}
+
+/// Whether a WebAssembly module carries the named custom section.
+fn has_custom_section(module: &[u8], name: &str) -> bool {
+    fn leb128(bytes: &[u8], offset: &mut usize) -> Option<usize> {
+        let mut value = 0_usize;
+        for shift in (0..35).step_by(7) {
+            let byte = *bytes.get(*offset)?;
+            *offset += 1;
+            value |= usize::from(byte & 0x7f) << shift;
+            if byte & 0x80 == 0 {
+                return Some(value);
+            }
+        }
+        None
+    }
+    let mut offset = 8;
+    while offset < module.len() {
+        let id = module[offset];
+        offset += 1;
+        let Some(size) = leb128(module, &mut offset) else {
+            return false;
+        };
+        let end = offset.saturating_add(size);
+        if id == 0 {
+            let mut name_offset = offset;
+            if let Some(length) = leb128(module, &mut name_offset) {
+                if module.get(name_offset..name_offset + length) == Some(name.as_bytes()) {
+                    return true;
+                }
+            }
+        }
+        offset = end;
+    }
+    false
+}
+
+/// Copies the page `build:assets` staged at public/index.html, with its loading overlay filled in, into every other
+/// route's directory, so a direct visit to any route loads the same page.
 fn stage_web_route_entrypoints(
     options: &BuildOptions,
     routes: &[crate::WebRouteManifest],
 ) -> Result<()> {
-    let source = options.project_root.join("index.html");
+    let public = options.project_root.join("public");
+    let source = public.join("index.html");
     let html =
         fs::read(&source).map_err(|error| io_error("read web route shell", &source, error))?;
-    let public = options.project_root.join("public");
-    fs::write(public.join("index.html"), &html)
-        .map_err(|error| io_error("stage root web route shell", &public, error))?;
     for route in routes {
         if route.route_path == "/" {
             continue;
@@ -509,7 +615,8 @@ fn build_web_workers(options: &BuildOptions, workers: &[WorkerBundleManifest]) -
                 "--lib",
                 "--crate-type",
                 "cdylib",
-            ]);
+            ])
+            .args(home_remap_config(home_remap_flag().as_deref()));
         if options.profile == BuildProfile::Release {
             cargo.arg("--release");
         }
@@ -560,6 +667,7 @@ fn build_web_workers(options: &BuildOptions, workers: &[WorkerBundleManifest]) -
         }
         fs::copy(&wasm, &destination)
             .map_err(|source| io_error("stage Worker WebAssembly", &wasm, source))?;
+        optimize_release_web_module(options, &destination)?;
     }
     Ok(())
 }
@@ -619,12 +727,40 @@ fn native_worker_registry_entries(
     Ok(entries)
 }
 
-fn native_worker_rustflags(existing: Option<&str>) -> String {
+fn native_worker_rustflags(existing: Option<&str>, home_remap: Option<&str>) -> String {
     let required = "--cfg fui_native_worker_registry --check-cfg=cfg(fui_native_worker_registry)";
-    match existing.filter(|flags| !flags.trim().is_empty()) {
-        Some(flags) => format!("{flags} {required}"),
-        None => required.to_owned(),
-    }
+    // RUSTFLAGS separates flags with spaces, so a home directory containing one is not remapped here.
+    let home_remap = home_remap.filter(|flag| !flag.contains(char::is_whitespace));
+    [
+        existing.filter(|flags| !flags.trim().is_empty()),
+        Some(required),
+        home_remap,
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" ")
+}
+
+/// Maps the builder's home directory to `~` in the paths rustc records, such as panic locations, so a published
+/// application does not name the home directory it was built in: every dependency's source sits under the Cargo home.
+fn home_remap_flag() -> Option<String> {
+    let home = env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })?;
+    let home = home.to_str()?.trim_end_matches(['/', '\\']);
+    (!home.is_empty()).then(|| format!("--remap-path-prefix={home}=~"))
+}
+
+/// Cargo arguments that add a flag to the build's `build.rustflags`. Cargo joins it with the project's own
+/// `build.rustflags`, while a project that sets `target.<triple>.rustflags` or `RUSTFLAGS` keeps exactly those.
+fn home_remap_config(flag: Option<&str>) -> Vec<String> {
+    flag.map(|flag| {
+        let quoted = flag.replace('\\', "\\\\").replace('"', "\\\"");
+        vec![
+            "--config".to_owned(),
+            format!("build.rustflags = [\"{quoted}\"]"),
+        ]
+    })
+    .unwrap_or_default()
 }
 
 fn link_native(
@@ -1140,6 +1276,83 @@ fn io_error(operation: &'static str, path: &Path, source: std::io::Error) -> Err
 #[cfg(test)]
 mod tests {
     #[test]
+    fn route_pages_copy_the_staged_page_rather_than_its_template() {
+        let root =
+            std::env::temp_dir().join(format!("cargo-fui-route-pages-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("public")).unwrap();
+        std::fs::write(root.join("index.html"), "{{LOADING_OVERLAY_BODY}}").unwrap();
+        std::fs::write(
+            root.join("public/index.html"),
+            "<div id=\"fui-loading\"></div>",
+        )
+        .unwrap();
+        let route = |path: &str| crate::WebRouteManifest {
+            route_path: path.into(),
+            wasm_artifact: "route.wasm".into(),
+            cargo_manifest: "Cargo.toml".into(),
+        };
+        let options = super::BuildOptions {
+            project_root: root.clone(),
+            profile: crate::BuildProfile::Release,
+            offline: true,
+        };
+        super::stage_web_route_entrypoints(&options, &[route("/"), route("/settings/")]).unwrap();
+        for page in ["public/index.html", "public/settings/index.html"] {
+            assert_eq!(
+                std::fs::read_to_string(root.join(page)).unwrap(),
+                "<div id=\"fui-loading\"></div>",
+                "{page}"
+            );
+        }
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn host_generation_runs_only_when_the_project_defines_it() {
+        let root =
+            std::env::temp_dir().join(format!("cargo-fui-package-scripts-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let package = root.join("package.json");
+        std::fs::write(
+            &package,
+            r#"{"scripts":{"generate:host":"tsx gen.ts","build:assets":"node a.mjs"}}"#,
+        )
+        .unwrap();
+        assert!(super::package_defines_script(&package, "generate:host").unwrap());
+        std::fs::write(&package, r#"{"scripts":{"build:assets":"node a.mjs"}}"#).unwrap();
+        assert!(!super::package_defines_script(&package, "generate:host").unwrap());
+        std::fs::write(&package, r#"{"name":"app"}"#).unwrap();
+        assert!(!super::package_defines_script(&package, "generate:host").unwrap());
+        std::fs::write(&package, "{").unwrap();
+        assert!(super::package_defines_script(&package, "generate:host").is_err());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn finds_custom_sections_by_name() {
+        let mut module = b"\0asm\x01\0\0\0".to_vec();
+        module.extend([1, 1, 0]);
+        module.extend([0, 16, 15]);
+        module.extend(b"target_features");
+        assert!(super::has_custom_section(&module, "target_features"));
+        assert!(!super::has_custom_section(&module, "name"));
+        assert!(!super::has_custom_section(&module[..12], "target_features"));
+    }
+
+    #[test]
+    fn release_modules_are_optimized_for_size_and_stripped() {
+        assert_eq!(super::WASM_OPT_ARGUMENTS[0], "-Oz");
+        for strip in [
+            "--strip-debug",
+            "--strip-producers",
+            "--strip-target-features",
+        ] {
+            assert!(super::WASM_OPT_ARGUMENTS.contains(&strip), "{strip}");
+        }
+    }
+
+    #[test]
     fn selects_the_platform_npm_launcher() {
         assert_eq!(super::npm_program_for(false), "npm");
         assert_eq!(super::npm_program_for(true), "npm.cmd");
@@ -1153,8 +1366,8 @@ mod tests {
         );
     }
     use super::{
-        deployment_target_for, paths_identify_same_file, read_web_asset,
-        supplemental_system_libraries, OperatingSystem,
+        deployment_target_for, home_remap_config, native_worker_rustflags,
+        paths_identify_same_file, read_web_asset, supplemental_system_libraries, OperatingSystem,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -1238,5 +1451,35 @@ mod tests {
             None
         );
         assert_eq!(deployment_target_for(OperatingSystem::MacOs, None), None);
+    }
+
+    #[test]
+    fn native_builds_append_the_home_remapping_unless_the_home_directory_has_whitespace() {
+        let required =
+            "--cfg fui_native_worker_registry --check-cfg=cfg(fui_native_worker_registry)";
+        assert_eq!(
+            native_worker_rustflags(None, Some("--remap-path-prefix=/home/user=~")),
+            format!("{required} --remap-path-prefix=/home/user=~")
+        );
+        assert_eq!(
+            native_worker_rustflags(Some("-C debuginfo=0"), None),
+            format!("-C debuginfo=0 {required}")
+        );
+        assert_eq!(
+            native_worker_rustflags(Some(" "), Some("--remap-path-prefix=/home/a user=~")),
+            required
+        );
+    }
+
+    #[test]
+    fn web_builds_add_the_home_remapping_as_a_toml_build_rustflags_entry() {
+        assert_eq!(
+            home_remap_config(Some(r#"--remap-path-prefix=C:\Users\a "b"=~"#)),
+            [
+                "--config".to_owned(),
+                r#"build.rustflags = ["--remap-path-prefix=C:\\Users\\a \"b\"=~"]"#.to_owned(),
+            ]
+        );
+        assert!(home_remap_config(None).is_empty());
     }
 }

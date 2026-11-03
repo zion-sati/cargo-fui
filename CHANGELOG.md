@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0 - 2026-11-03
+
+- cargo fui build and cargo fui dev run the project's generate:host npm script, when package.json defines one, before compiling any WebAssembly, so host-service and host-event bindings follow their contracts.
+- cargo fui build, dev and package map the builder's home directory to ~ in the source paths rustc records, such as panic locations, so published WebAssembly no longer names it. Native executables can still contain paths that C code compiled by a dependency's build script records.
+- Routed web apps built with cargo fui show the loading overlay on every route; their pages previously shipped the overlay's unfilled template placeholders.
+- Release web builds are optimized for size: web and universal projects build Rust at opt-level "z", and every route and Worker module then goes through Binaryen's wasm-opt -Oz, which strips its function names and toolchain sections.
+
 ## 0.1.12 - 2026-10-30
 
 - Updated verified upstream dependency pins.

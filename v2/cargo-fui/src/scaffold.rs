@@ -2,10 +2,19 @@ use crate::{Error, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const FUI_RS_VERSION: &str = "=0.3.0";
-const RUNTIME_VERSION: &str = "0.3.0";
+const FUI_RS_VERSION: &str = "=0.4.0";
+const RUNTIME_VERSION: &str = "0.4.0";
 const ICON: &[u8] = include_bytes!("../templates/application-icon.png");
 const WORKER_SOURCE: &str = include_str!("../templates/worker.rs");
+/// The Binaryen release the web templates pin for `wasm-opt`.
+pub(crate) const BINARYEN_VERSION: &str = "132.0.0";
+/// A browser downloads every route's WebAssembly before it can start, so projects with a web target build for size;
+/// release web builds then optimize and strip each module with Binaryen. Native-only projects keep the speed-optimized
+/// default.
+const WEB_RELEASE_PROFILE: &str =
+    "[profile.release]\nopt-level = \"z\"\nlto = true\ncodegen-units = 1\npanic = \"abort\"\n";
+const NATIVE_RELEASE_PROFILE: &str =
+    "[profile.release]\nopt-level = 3\nlto = true\ncodegen-units = 1\npanic = \"abort\"\n";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProjectTemplate {
@@ -171,7 +180,7 @@ fn write_routed_project(
     write_text(
         &options.destination.join("Cargo.toml"),
         &format!(
-            "[workspace]\nmembers = {members}\nresolver = \"2\"\n\n[workspace.dependencies]\nfui = {{ package = \"fui-rs\", version = \"{FUI_RS_VERSION}\" }}\n\n[profile.dev]\ndebug = 0\npanic = \"abort\"\n\n[profile.release]\nopt-level = 3\nlto = true\ncodegen-units = 1\npanic = \"abort\"\n"
+            "[workspace]\nmembers = {members}\nresolver = \"2\"\n\n[workspace.dependencies]\nfui = {{ package = \"fui-rs\", version = \"{FUI_RS_VERSION}\" }}\n\n[profile.dev]\ndebug = 0\npanic = \"abort\"\n\n{WEB_RELEASE_PROFILE}"
         ),
     )?;
     let native_manifest = if universal {
@@ -290,7 +299,9 @@ fn write_universal_project(
 ) -> Result<()> {
     write_text(
         &options.destination.join("Cargo.toml"),
-        "[workspace]\nmembers = [\"crates/ui\", \"crates/native\", \"crates/web\", \"crates/worker\"]\nresolver = \"2\"\n\n[profile.dev]\npanic = \"abort\"\n\n[profile.release]\nopt-level = 3\nlto = true\ncodegen-units = 1\npanic = \"abort\"\n",
+        &format!(
+            "[workspace]\nmembers = [\"crates/ui\", \"crates/native\", \"crates/web\", \"crates/worker\"]\nresolver = \"2\"\n\n[profile.dev]\npanic = \"abort\"\n\n{WEB_RELEASE_PROFILE}"
+        ),
     )?;
     write_text(
         &options.destination.join("fui.toml"),
@@ -432,8 +443,13 @@ fn cargo_manifest(package: &str, crate_name: &str, template: ProjectTemplate) ->
     } else {
         "[\"cdylib\", \"staticlib\"]"
     };
+    let release_profile = if template == ProjectTemplate::Native {
+        NATIVE_RELEASE_PROFILE
+    } else {
+        WEB_RELEASE_PROFILE
+    };
     format!(
-        "[package]\nname = \"{package}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"{crate_name}\"\ncrate-type = {crate_types}\n\n[features]\ndefault = []\nnative = [\"fui/native-runtime\"]\n\n[dependencies]\nfui = {{ package = \"fui-rs\", version = \"{FUI_RS_VERSION}\" }}\n\n[target.'cfg(not(target_arch = \"wasm32\"))'.dependencies]\n{crate_name}_worker = {{ package = \"{package}-worker\", path = \"worker\" }}\n\n[profile.dev]\npanic = \"abort\"\n\n[profile.release]\nopt-level = 3\nlto = true\ncodegen-units = 1\npanic = \"abort\"\n\n[workspace]\nmembers = [\"worker\"]\n"
+        "[package]\nname = \"{package}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"{crate_name}\"\ncrate-type = {crate_types}\n\n[features]\ndefault = []\nnative = [\"fui/native-runtime\"]\n\n[dependencies]\nfui = {{ package = \"fui-rs\", version = \"{FUI_RS_VERSION}\" }}\n\n[target.'cfg(not(target_arch = \"wasm32\"))'.dependencies]\n{crate_name}_worker = {{ package = \"{package}-worker\", path = \"worker\" }}\n\n[profile.dev]\npanic = \"abort\"\n\n{release_profile}\n[workspace]\nmembers = [\"worker\"]\n"
     )
 }
 
@@ -476,7 +492,7 @@ fn rust_source(caption: &str, entrypoint: bool) -> String {
 
 fn web_package(package: &str) -> String {
     format!(
-        "{{\n  \"name\": \"{package}\",\n  \"version\": \"0.1.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {{\n    \"build:assets\": \"node scripts/prepare-runtime.mjs\",\n    \"build:harness\": \"esbuild harness.ts --bundle --format=esm --platform=browser --outfile=public/harness.js\"\n  }},\n  \"dependencies\": {{\n    \"@effindomv2/runtime\": \"{RUNTIME_VERSION}\"\n  }},\n  \"devDependencies\": {{\n    \"esbuild\": \"0.28.1\"\n  }},\n  \"allowScripts\": {{\n    \"esbuild@0.28.1\": true\n  }}\n}}\n"
+        "{{\n  \"name\": \"{package}\",\n  \"version\": \"0.1.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {{\n    \"build:assets\": \"node scripts/prepare-runtime.mjs\",\n    \"build:harness\": \"esbuild harness.ts --bundle --format=esm --platform=browser --outfile=public/harness.js\"\n  }},\n  \"dependencies\": {{\n    \"@effindomv2/runtime\": \"{RUNTIME_VERSION}\"\n  }},\n  \"devDependencies\": {{\n    \"binaryen\": \"{BINARYEN_VERSION}\",\n    \"esbuild\": \"0.28.1\"\n  }},\n  \"allowScripts\": {{\n    \"esbuild@0.28.1\": true\n  }}\n}}\n"
     )
 }
 
